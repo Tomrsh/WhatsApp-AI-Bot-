@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI WhatsApp Manager</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #e5ddd5; display: flex; justify-content: center; padding: 20px; }
+        .box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #075e54; }
+        img { width: 250px; border: 1px solid #ccc; padding: 5px; }
+        .hidden { display: none; }
+        input, textarea, button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;}
+        button { background: #25d366; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button:hover { background: #128c7e; }
+        .status { margin: 10px 0; font-weight: bold; color: #555; }
+        .switch-container { display: flex; justify-content: space-between; align-items: center; background: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>🤖 WhatsApp AI Bot</h2>
+        <p class="status" id="status">Connecting...</p>
+
+        <!-- QR Code Section -->
+        <div id="qr-area">
+            <img id="qr-img" src="" alt="Waiting for QR..." />
+            <p>Scan with Linked Devices</p>
+        </div>
+
+        <!-- Dashboard (Hidden until connected) -->
+        <div id="dashboard" class="hidden">
+            <div class="switch-container">
+                <span>AI Auto Reply Mode</span>
+                <input type="checkbox" id="ai-toggle" style="width: 20px;">
+            </div>
+
+            <hr>
+            <h3>⏳ Schedule Message</h3>
+            <input type="text" id="phone" placeholder="919876543210 (With Country Code)">
+            <textarea id="msg" placeholder="Type your message..."></textarea>
+            <input type="number" id="delay" placeholder="Seconds (e.g. 10)">
+            <button onclick="sendSchedule()">Set Timer</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const statusEl = document.getElementById('status');
+        const qrImg = document.getElementById('qr-img');
+        const qrArea = document.getElementById('qr-area');
+        const dashboard = document.getElementById('dashboard');
+
+        socket.on('status', (msg) => statusEl.innerText = msg);
+        
+        socket.on('qr_code', (url) => {
+            qrImg.src = url;
+            qrArea.classList.remove('hidden');
+            dashboard.classList.add('hidden');
+        });
+
+        socket.on('ready', () => {
+            statusEl.innerText = "✅ System Ready";
+            qrArea.classList.add('hidden');
+            dashboard.classList.remove('hidden');
+        });
+
+        document.getElementById('ai-toggle').addEventListener('change', (e) => {
+            fetch('/api/toggle-ai', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ enabled: e.target.checked })
+            });
+        });
+
+        async function sendSchedule() {
+            const number = document.getElementById('phone').value;
+            const message = document.getElementById('msg').value;
+            const delaySeconds = document.getElementById('delay').value;
+
+            if(!number || !message) return alert("Fill all fields");
+
+            await fetch('/api/schedule-msg', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ number, message, delaySeconds })
+            });
+            alert("Timer Started!");
+        }
+    </script>
+</body>
+</html>
