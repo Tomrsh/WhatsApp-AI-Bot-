@@ -1,53 +1,61 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>WA Assistant Pro</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistant Dashboard</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         :root { --green: #00a884; --dark: #0b141a; --card: #202c33; --text: #e9edef; }
-        body { font-family: sans-serif; background: var(--dark); color: var(--text); display: flex; justify-content: center; padding: 20px; }
-        .panel { width: 100%; max-width: 400px; background: var(--card); padding: 30px; border-radius: 20px; text-align: center; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: var(--text); display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .panel { width: 100%; max-width: 420px; background: var(--card); padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
         .hidden { display: none; }
-        .btn { width: 100%; padding: 14px; margin: 10px 0; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn:active { transform: scale(0.98); }
         .btn-green { background: var(--green); color: var(--dark); }
-        .btn-outline { background: transparent; border: 1px solid var(--green); color: var(--green); }
-        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #2a3942; color: white; box-sizing: border-box; }
-        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; text-align: left; }
+        .btn-outline { background: transparent; border: 1px solid #3b4a54; color: var(--text); }
+        input { width: 100%; padding: 14px; margin: 10px 0; border-radius: 10px; border: 1px solid #3b4a54; background: #2a3942; color: white; box-sizing: border-box; }
+        .card { background: #111b21; padding: 15px; border-radius: 15px; margin-top: 15px; text-align: left; }
+        #qr-box img { background: white; padding: 10px; border-radius: 10px; width: 220px; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="color: var(--green);">Assistant Dashboard</h2>
-    
+    <h2 style="color: var(--green); margin-bottom: 5px;">WA Assistant Pro</h2>
+    <p id="conn-status" style="font-size: 13px; color: #8696a0;">Initializing...</p>
+
     <div id="login-choice">
-        <button class="btn btn-green" onclick="showQR()">New Login (QR Scan)</button>
-        <button class="btn btn-outline" onclick="showIDLogin()">Login with Device ID</button>
+        <button class="btn btn-green" onclick="showQR()">Scan QR Code</button>
+        <button class="btn btn-outline" onclick="showID()">Login via Device ID</button>
     </div>
 
     <div id="qr-screen" class="hidden">
-        <div id="qr-box" style="background: white; padding: 10px; display: inline-block; border-radius: 10px;">Waiting for QR...</div>
-        <p>Scan with WhatsApp Linked Devices</p>
-        <button class="btn-outline" onclick="location.reload()">Back</button>
+        <div id="qr-box">Waiting for QR...</div>
+        <p style="font-size: 13px;">Open WhatsApp > Linked Devices > Link a Device</p>
+        <button class="btn btn-outline" onclick="location.reload()">Cancel</button>
     </div>
 
     <div id="id-screen" class="hidden">
-        <input type="text" id="device-id-input" placeholder="Paste Device ID here...">
-        <button class="btn btn-green" onclick="submitID()">Connect Now</button>
-        <button class="btn-outline" onclick="location.reload()">Back</button>
+        <input type="text" id="id-input" placeholder="Paste Device ID String...">
+        <button class="btn btn-green" onclick="submitID()">Link Device ID</button>
+        <button class="btn btn-outline" onclick="location.reload()">Back</button>
     </div>
 
     <div id="dashboard" class="hidden">
         <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-            <strong>Assistant Active</strong>
-            <input type="checkbox" id="ai-toggle" style="width:20px; height:20px;">
+            <strong>🤖 Assistant Active</strong>
+            <input type="checkbox" id="ai-toggle" style="width:22px; height:22px; accent-color: var(--green);">
         </div>
+        
         <div class="card">
-            <p style="font-size: 13px; color: #8696a0;">Apni Device ID copy karke rakhein:</p>
-            <button class="btn btn-outline" onclick="copyMyID()">Get & Copy Device ID</button>
-            <textarea id="id-display" class="hidden" style="font-size: 8px; margin-top:10px; height:60px;" readonly></textarea>
+            <h4 style="margin:0;">Device Identity</h4>
+            <p style="font-size: 11px; color: #8696a0;">Copy this ID to login on other devices without QR.</p>
+            <button class="btn btn-outline" onclick="copyID()">Copy My Device ID</button>
+            <textarea id="id-display" class="hidden" style="width:100%; height:60px; font-size: 8px; margin-top:10px; background:#0b141a; color:var(--green); border:none;" readonly></textarea>
         </div>
-        <button class="btn" style="background: #ea4335; color: white;" onclick="location.reload()">Disconnect/Reload</button>
+        
+        <button class="btn" style="background: #ea4335; margin-top: 20px;" onclick="location.reload()">Refresh / Logout</button>
     </div>
 </div>
 
@@ -59,45 +67,52 @@
         document.getElementById('qr-screen').classList.remove('hidden');
     }
 
-    function showIDLogin() {
+    function showID() {
         document.getElementById('login-choice').classList.add('hidden');
         document.getElementById('id-screen').classList.remove('hidden');
     }
 
     async function submitID() {
-        const id = document.getElementById('device-id-input').value;
+        const deviceId = document.getElementById('id-input').value;
+        if(!deviceId) return alert("Bhai ID toh dalo!");
         const res = await fetch('/api/login-by-id', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ deviceId: id })
+            body: JSON.stringify({ deviceId })
         });
-        if(res.ok) alert("Session injected! System restarting...");
-        else alert("Invalid ID Bhai!");
+        if(res.ok) alert("ID Injected! Server is restarting, please wait 5 seconds.");
+        else alert("Invalid ID Format!");
     }
 
-    async function copyMyID() {
+    async function copyID() {
         const res = await fetch('/api/export-id');
         const data = await res.json();
         if(data.deviceId) {
-            const area = document.getElementById('id-display');
-            area.value = data.deviceId;
-            area.classList.remove('hidden');
+            const el = document.getElementById('id-display');
+            el.value = data.deviceId;
+            el.classList.remove('hidden');
             navigator.clipboard.writeText(data.deviceId);
             alert("Device ID Copied!");
-        } else {
-            alert(data.error);
         }
     }
 
-    socket.on('qr', url => document.getElementById('qr-box').innerHTML = `<img src="${url}" width="200">`);
-    
+    socket.on('qr', url => {
+        document.getElementById('qr-box').innerHTML = `<img src="${url}">`;
+        document.getElementById('conn-status').innerText = "Ready to Scan";
+    });
+
     socket.on('connected', () => {
-        document.querySelectorAll('div[id$="-screen"], #login-choice').forEach(d => d.classList.add('hidden'));
+        document.querySelectorAll('div[id$="-screen"], #login-choice, #id-screen').forEach(d => d.classList.add('hidden'));
         document.getElementById('dashboard').classList.remove('hidden');
+        document.getElementById('conn-status').innerText = "✅ Connected & Protected";
     });
 
     document.getElementById('ai-toggle').onchange = (e) => {
-        fetch('/api/toggle-ai', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: e.target.checked}) });
+        fetch('/api/toggle-ai', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({status: e.target.checked}) 
+        });
     };
 
     window.onload = async () => {
@@ -107,7 +122,7 @@
             document.getElementById('ai-toggle').checked = data.ai;
             socket.emit('connected');
         }
-    }
+    };
 </script>
 </body>
 </html>
