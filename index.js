@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// ================= USER FIREBASE CONFIG =================
+// ================= FIREBASE WEB CONFIG =================
 const firebaseConfig = {
   apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
   databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
@@ -23,35 +23,19 @@ app.use(express.static('public'));
 
 let sock;
 let isConnected = false;
+let bomberActive = false;
 let botConfig = { 
     isAIEnabled: true, 
     groupEnabled: false, 
     customReplies: {} 
 };
 
-// --- SMART REPLY ENGINE ---
+// --- SMART REPLY ENGINE (Old Feature) ---
 function getSmartReply(text) {
     const msg = text.toLowerCase();
-    
-    // 1. Greetings
-    if (/hi|hello|hey|hlo|salam|namaste/.test(msg)) {
-        return "Hello! Sir abhi busy hain, main unki assistant bol rahi hoon. Batayein kya kaam hai? 😊";
-    }
-    // 2. Status / Busy Inquiry
-    if (/busy|kya kar rahe|kaha ho|call|busy ho/.test(msg)) {
-        return "Sir abhi unavailable hain. Aap apna message chhod dijiye, main unhe inform kar dungi. ✨";
-    }
-    // 3. Informing / Message Leaving
-    if (/bata dena|bol dena|infom|message|baat|kehna|sun lo/.test(msg)) {
-        return "Ji bilkul, maine note kar liya hai. Sir aate hi check kar lenge. 😊";
-    }
-    // 4. Short / Casual
-    if (msg.length < 5 || /acha|ok|okay|thik|hm/.test(msg)) {
-        return "Ji, aur kuch kehna hai aapko?";
-    }
-
-    // Default Fallback
-    return "Theek hai, main ye Sir ko bata dungi. 😊";
+    if (/hi|hello|hey|hlo/.test(msg)) return "Hello! Sir abhi busy hain, main unki assistant bol rahi hoon. 😊";
+    if (/busy|kaha ho|call/.test(msg)) return "Sir abhi unavailable hain. Aap message chhod dijiye. ✨";
+    return "Ji, maine note kar liya hai. Sir aate hi check kar lenge. 😊";
 }
 
 async function syncSettings() {
@@ -72,7 +56,7 @@ async function startWA() {
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Master-Assistant", "Chrome", "1.1.0"]
+        browser: ["Master-Pro-Panel", "Chrome", "1.1.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -83,7 +67,6 @@ async function startWA() {
         if (connection === 'open') {
             isConnected = true;
             io.emit('connected', botConfig);
-            console.log("✅ Assistant Online!");
         }
         if (connection === 'close') {
             isConnected = false;
@@ -101,21 +84,42 @@ async function startWA() {
 
         if (sender.endsWith('@g.us') && !botConfig.groupEnabled) return;
 
-        await sock.sendPresenceUpdate('composing', sender);
-        await delay(1500);
-
-        // --- PRIORITY 1: CUSTOM REPLY ---
+        // PRIORITY CHECK: Custom Reply First
         if (botConfig.customReplies && botConfig.customReplies[cleanNumber]) {
+            await delay(1000);
             return await sock.sendMessage(sender, { text: botConfig.customReplies[cleanNumber] }, { quoted: m });
         }
 
-        // --- PRIORITY 2: SMART REPLY ---
+        // SMART REPLY Second
         const reply = getSmartReply(msgText);
+        await delay(1500);
         await sock.sendMessage(sender, { text: reply }, { quoted: m });
     });
 }
 
-// APIs
+// --- NEW APIs: TIMER & BOMBER ---
+app.post('/api/timer-msg', (req, res) => {
+    const { number, message, time, unit } = req.body;
+    let ms = { 'sec': 1, 'min': 60, 'hour': 3600, 'day': 86400 }[unit] * time * 1000;
+    setTimeout(async () => {
+        if (isConnected) await sock.sendMessage(number + "@s.whatsapp.net", { text: message });
+    }, ms);
+    res.json({ success: true });
+});
+
+app.post('/api/bomber', async (req, res) => {
+    const { action, number, message, delayTime, count } = req.body;
+    if (action === 'start') {
+        bomberActive = true;
+        for (let i = 0; i < count && bomberActive; i++) {
+            await sock.sendMessage(number + "@s.whatsapp.net", { text: message });
+            await delay(delayTime * 1000);
+        }
+        bomberActive = false;
+    } else { bomberActive = false; }
+    res.json({ success: true });
+});
+
 app.get('/api/get-config', (req, res) => res.json({ ...botConfig, isConnected }));
 app.post('/api/update-config', async (req, res) => {
     botConfig = { ...botConfig, ...req.body };
@@ -124,4 +128,4 @@ app.post('/api/update-config', async (req, res) => {
 });
 
 startWA();
-server.listen(3000, () => console.log("🚀 Server: http://localhost:3000"));
+server.listen(3000, () => console.log("🚀 Server running on http://localhost:3000"));
