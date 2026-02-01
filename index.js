@@ -1,152 +1,113 @@
-// index.js
-require('dotenv').config();
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const pino = require('pino');
 const express = require('express');
-const http = require('http');
 const { Server } = require('socket.io');
+const http = require('http');
 const QRCode = require('qrcode');
-const OpenAI = require('openai');
-const path = require('path');
-const fs = require('fs');
+const pino = require('pino');
 
-// --- SETUP SERVER ---
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// ================= CONFIGURATION =================
+const firebaseConfig = {
+  apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
+  databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
+};
+// =================================================
 
-// --- CONFIGURATION ---
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+app.use(express.json());
+app.use(express.static('public'));
+
 let sock;
 let isAIEnabled = false;
+const sessionState = new Map(); // Yaad rakhne ke liye ki baat kahan tak pahunchi
 
-// --- AI LOGIC ---
-const systemPrompt = `
-You are a smart Personal Assistant for my WhatsApp.
-My Boss is currently unavailable.
-Reply politely in Hinglish (Hindi + English).
-Example: "Hello, Sir abhi busy hain. Bataye kya kaam tha?"
-Do not be rude. Keep replies short.
-`;
+// --- IMPROVED NATURAL ASSISTANT LOGIC ---
+function getNaturalReply(sender, text) {
+    const msg = text.toLowerCase();
+    const state = sessionState.get(sender) || { introDone: false, nameAsked: false };
+    
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-async function getAIResponse(userMsg) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userMsg }
-            ]
-        });
-        return response.choices[0].message.content;
-    } catch (e) {
-        console.log("OpenAI Error:", e.message);
-        return "Sir abhi busy hain, baad me reply karenge.";
+    // 1. Agar user ne message/naam bataya (Common phrases)
+    if (/bata dena|bol dena|infom|message|baat|kehna/.test(msg)) {
+        sessionState.set(sender, { ...state, introDone: true });
+        return pick([
+            "Ji bilkul, main Sir ko inform kar dungi. 😊",
+            "Theek hai, maine note kar liya hai. Sir aate hi check kar lenge.",
+            "Done! Aapka message Sir tak pahunch jayega. ✨"
+        ]);
+    }
+
+    // 2. Greetings (Sirf pehli baar intro degi)
+    if (/hi|hello|hey|hlo|salam/.test(msg)) {
+        if (!state.introDone) {
+            sessionState.set(sender, { ...state, introDone: true });
+            return "Hello! Sir abhi busy hain, isliye main unka account manage kar rahi hoon. Batayein kya kaam hai? 😊";
+        } else {
+            return "Ji batayein, main sun rahi hoon. ✨";
+        }
+    }
+
+    // 3. Status/Busy sawal
+    if (/busy|kaha hai|kya kar raha|call/.test(msg)) {
+        return pick([
+            "Sir abhi ek meeting mein hain, isliye phone nahi utha payenge. 😊",
+            "Filhal toh wo busy hain. Aapka koi urgent kaam hai toh mujhe bata dijiye.",
+            "Sir unavailable hain. Main unki assistant hoon, aapka message un tak pahuncha sakti hoon."
+        ]);
+    }
+
+    // 4. Short replies like "Acha", "Ok", "Hmm"
+    if (msg.length < 5 || /acha|ok|okay|thik|hm/.test(msg)) {
+        return pick(["Ji.", "Theek hai. 😊", "Ji, aur kuch?"]);
+    }
+
+    // Default Reply (Natural Flow)
+    if (!state.introDone) {
+        sessionState.set(sender, { ...state, introDone: true });
+        return "Sir abhi unavailable hain, main unki assistant hoon. Aap apna message chhod dijiye. 😊";
+    } else {
+        return "Theek hai, main ye Sir ko bata dungi. Kuch aur kehna hai? ✨";
     }
 }
 
-// --- WHATSAPP LOGIC (BAILEYS) ---
-async function connectToWhatsApp() {
-    // Auth State (Session save karne ke liye)
+async function connectToWA() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // Terminal me bhi QR dikhega
-        logger: pino({ level: 'silent' }), // Logs clean rakhne ke liye
-        browser: ["AI Assistant", "Chrome", "1.0.0"]
+        logger: pino({ level: 'silent' }),
+        browser: ["Pro-Assistant", "Chrome", "1.1.0"]
     });
 
-    // Save Credentials automatically
     sock.ev.on('creds.update', saveCreds);
 
-    // Connection Updates (QR, Connect, Disconnect)
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            console.log("QR Code received!");
-            // QR Code ko Image URL me convert karke Frontend bhejo
-            QRCode.toDataURL(qr, (err, url) => {
-                io.emit('qr_code', url);
-                io.emit('status', 'Scan QR Code now');
-            });
-        }
-
-        if (connection === 'open') {
-            console.log('✅ WhatsApp Connected!');
-            io.emit('status', 'Connected');
-            io.emit('ready', true);
-        }
-
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed. Reconnecting...', shouldReconnect);
-            io.emit('status', 'Disconnected. Reconnecting...');
-            if (shouldReconnect) {
-                connectToWhatsApp();
-            }
-        }
+    sock.ev.on('connection.update', (update) => {
+        const { connection, qr } = update;
+        if (qr) QRCode.toDataURL(qr).then(url => io.emit('qr', url));
+        if (connection === 'open') io.emit('connected');
+        if (connection === 'close') connectToWA();
     });
 
-    // Message Handling (AI Reply)
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return; // Ignore self messages
+        const m = messages[0];
+        if (!m.message || m.key.fromMe || !isAIEnabled) return;
+        const sender = m.key.remoteJid;
+        const msgText = m.message.conversation || m.message.extendedTextMessage?.text || "";
 
-        const remoteJid = msg.key.remoteJid;
-        // Text nikalne ka logic (Baileys me thoda complex hota hai)
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-
-        if (isAIEnabled && text) {
-            console.log(`Msg from ${remoteJid}: ${text}`);
-            
-            // Typing status bhejo
-            await sock.sendPresenceUpdate('composing', remoteJid);
-            
-            // AI Response
-            const reply = await getAIResponse(text);
-            
-            // Reply Send Karo
-            await sock.sendMessage(remoteJid, { text: reply }, { quoted: msg });
-        }
+        await sock.sendPresenceUpdate('composing', sender);
+        const reply = getNaturalReply(sender, msgText);
+        
+        setTimeout(() => {
+            sock.sendMessage(sender, { text: reply }, { quoted: m });
+        }, 1500);
     });
 }
 
-// Start WhatsApp Logic
-connectToWhatsApp();
+// APIs
+app.post('/api/toggle-ai', (req, res) => { isAIEnabled = req.body.status; res.json({ success: true }); });
+app.get('/api/status', (req, res) => res.json({ connected: !!(sock?.user), ai: isAIEnabled }));
 
-// --- API ROUTES ---
-
-// Toggle AI
-app.post('/api/toggle-ai', (req, res) => {
-    isAIEnabled = req.body.enabled;
-    console.log("AI Mode:", isAIEnabled);
-    res.json({ success: true, status: isAIEnabled });
-});
-
-// Timer Message
-app.post('/api/schedule-msg', async (req, res) => {
-    const { number, message, delaySeconds } = req.body;
-    
-    // Number format (1234567890 -> 911234567890@s.whatsapp.net)
-    const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
-    console.log(`Scheduling msg for ${jid} in ${delaySeconds}s`);
-
-    setTimeout(async () => {
-        if(sock) {
-            await sock.sendMessage(jid, { text: message });
-            console.log("Timer Message Sent!");
-        }
-    }, delaySeconds * 1000);
-
-    res.json({ success: true });
-});
-
-// Server Start
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+connectToWA();
+server.listen(3000, () => console.log("🚀 Natural Assistant Live!"));
