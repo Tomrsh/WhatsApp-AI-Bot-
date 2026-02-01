@@ -20,9 +20,9 @@
   "homepage": "https://github.com/Tomrsh/WhatsApp-AI-Bot-#readme",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "axios": "^1.13.4",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "openai": "^6.17.0",
     "pino": "^10.3.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
