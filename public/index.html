@@ -1,56 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Assistant Master Admin</title>
+    <title>Ultimate Admin Panel</title>
     <style>
-        :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --border: #3b4a54; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; justify-content: center; padding: 20px; }
-        .panel { width: 450px; background: var(--card); padding: 25px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
-        .card { background: #111b21; padding: 15px; border-radius: 12px; margin: 15px 0; border: 1px solid var(--border); }
-        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --red: #ff3b30; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; flex-wrap: wrap; justify-content: center; padding: 20px; gap: 15px; }
+        .panel { width: 380px; background: var(--card); padding: 20px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid #3b4a54; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
         .btn-green { background: var(--green); color: var(--bg); }
-        input { width: 100%; padding: 12px; margin: 8px 0; background: #2a3942; border: 1px solid var(--border); color: white; border-radius: 8px; box-sizing: border-box; }
+        .btn-red { background: var(--red); color: white; }
+        input, select { width: 100%; padding: 10px; margin: 5px 0; background: #2a3942; border: none; color: white; border-radius: 5px; box-sizing: border-box; }
         .hidden { display: none; }
-        .status { text-align: center; font-size: 12px; margin-bottom: 10px; }
+        h3 { margin-top: 0; color: var(--green); font-size: 16px; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="color: var(--green); text-align: center; margin-bottom: 5px;">Assistant Master</h2>
-    <p id="st-tag" class="status" style="color:#8696a0;">Syncing...</p>
-
-    <div id="qr-screen" class="hidden" style="text-align: center;">
-        <div id="qr-box" style="margin: 20px 0;">QR Loading...</div>
-        <p style="font-size: 13px;">Scan to activate Smart Assistant</p>
-    </div>
-
+    <h2 style="text-align: center; color: var(--green);">Core Controls</h2>
+    <div id="qr-box" style="text-align: center;">Connecting...</div>
+    
     <div id="dashboard" class="hidden">
         <div class="card">
-            <div style="display:flex; justify-content:space-between;">
-                <span>Smart AI Assistant</span>
-                <input type="checkbox" id="ai-toggle">
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-top:15px;">
-                <span>Group Replies</span>
-                <input type="checkbox" id="group-toggle">
-            </div>
+            <label style="display:flex; justify-content:space-between;">Smart AI <input type="checkbox" id="ai-toggle"></label>
+            <label style="display:flex; justify-content:space-between; margin-top:10px;">Groups <input type="checkbox" id="group-toggle"></label>
         </div>
-
         <div class="card">
-            <h4 style="margin:0; color: var(--green);">Priority Specific Reply</h4>
-            <p style="font-size: 11px; color: #8696a0;">In numbers ko Smart reply nhi jayega.</p>
-            <input type="number" id="num" placeholder="91XXXXXXXXXX">
-            <input type="text" id="msg" placeholder="Edited reply for this number">
-            <button class="btn btn-green" onclick="addCustom()">Save Logic to Firebase</button>
-            <div id="p-list" style="font-size: 11px; margin-top: 10px; color: var(--green);"></div>
+            <h3>Set Priority Reply</h3>
+            <input type="number" id="p-num" placeholder="91XXXXXXXXXX">
+            <input type="text" id="p-msg" placeholder="Specific reply">
+            <button class="btn btn-green" onclick="addPriority()">Save Priority</button>
         </div>
+    </div>
+</div>
 
-        <div class="card">
-            <h4>Remote Access</h4>
-            <input type="text" id="link" readonly style="font-size: 10px; color: var(--green);">
-            <button class="btn" style="background: var(--border); color: white;" onclick="copyLink()">Copy Controller Link</button>
+<div class="panel">
+    <h2 style="text-align: center;">Advance Tools</h2>
+    <div class="card">
+        <h3>⏱️ Timer Message</h3>
+        <input type="number" id="t-num" placeholder="91XXXXXXXXXX">
+        <input type="text" id="t-msg" placeholder="Message content">
+        <div style="display:flex; gap:5px;">
+            <input type="number" id="t-val" placeholder="Time">
+            <select id="t-unit"><option value="sec">Sec</option><option value="min">Min</option><option value="hour">Hour</option></select>
         </div>
+        <button class="btn btn-green" onclick="setTimer()">Schedule</button>
+    </div>
+
+    <div class="card">
+        <h3>💣 Message Bomber</h3>
+        <input type="number" id="b-num" placeholder="91XXXXXXXXXX">
+        <input type="text" id="b-msg" placeholder="Bomb msg">
+        <input type="number" id="b-delay" placeholder="Delay (Sec)">
+        <input type="number" id="b-count" placeholder="Count">
+        <button class="btn btn-green" onclick="bomb('start')">START</button>
+        <button class="btn btn-red" onclick="bomb('stop')">STOP</button>
     </div>
 </div>
 
@@ -59,58 +64,46 @@
     const socket = io();
     let config = {};
 
-    function updateUI(conf) {
-        config = conf;
-        document.getElementById('st-tag').innerText = "✅ System Connected & Synced";
-        document.getElementById('st-tag').style.color = "var(--green)";
-        document.getElementById('qr-screen').classList.add('hidden');
-        document.getElementById('dashboard').classList.remove('hidden');
-        document.getElementById('ai-toggle').checked = config.isAIEnabled;
-        document.getElementById('group-toggle').checked = config.groupEnabled;
-        document.getElementById('link').value = window.location.href;
-        
-        const list = document.getElementById('p-list');
-        list.innerHTML = "<b>Priority Set For:</b><br>";
-        for(let n in config.customReplies) list.innerHTML += `• ${n}<br>`;
-    }
-
     socket.on('qr', url => {
-        document.getElementById('qr-screen').classList.remove('hidden');
-        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="220" style="background:white; padding:10px; border-radius:10px;">`;
+        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="180" style="background:white; padding:10px; border-radius:10px;">`;
     });
 
-    socket.on('connected', (c) => updateUI(c));
+    socket.on('connected', (c) => {
+        config = c;
+        document.getElementById('qr-box').innerHTML = "<b style='color:var(--green)'>✅ Linked Successfully</b>";
+        document.getElementById('dashboard').classList.remove('hidden');
+        document.getElementById('ai-toggle').checked = c.isAIEnabled;
+        document.getElementById('group-toggle').checked = c.groupEnabled;
+    });
 
-    async function addCustom() {
-        const n = document.getElementById('num').value;
-        const m = document.getElementById('msg').value;
-        if(!n || !m) return alert("Bhai details dalo!");
-        
-        config.customReplies[n] = m;
-        await fetch('/api/update-config', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(config)
-        });
-        alert("Synced to Firebase!");
-        updateUI(config);
+    async function updateConfig() {
+        config.isAIEnabled = document.getElementById('ai-toggle').checked;
+        config.groupEnabled = document.getElementById('group-toggle').checked;
+        await fetch('/api/update-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
     }
 
-    document.querySelectorAll('input[type="checkbox"]').forEach(i => {
-        i.onchange = async () => {
-            config.isAIEnabled = document.getElementById('ai-toggle').checked;
-            config.groupEnabled = document.getElementById('group-toggle').checked;
-            await fetch('/api/update-config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(config)
-            });
-        };
-    });
+    async function addPriority() {
+        const n = document.getElementById('p-num').value;
+        const m = document.getElementById('p-msg').value;
+        config.customReplies[n] = m;
+        await updateConfig();
+        alert("Priority Saved!");
+    }
 
-    function copyLink() { navigator.clipboard.writeText(document.getElementById('link').value); alert("Copied!"); }
+    async function setTimer() {
+        const payload = { number: document.getElementById('t-num').value, message: document.getElementById('t-msg').value, time: document.getElementById('t-val').value, unit: document.getElementById('t-unit').value };
+        await fetch('/api/timer-msg', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        alert("Scheduled!");
+    }
 
-    fetch('/api/get-config').then(r => r.json()).then(d => { if(d.isConnected) updateUI(d); });
+    async function bomb(action) {
+        const payload = { action, number: document.getElementById('b-num').value, message: document.getElementById('b-msg').value, delayTime: document.getElementById('b-delay').value, count: document.getElementById('b-count').value };
+        fetch('/api/bomber', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        alert("Bomber Command Sent!");
+    }
+
+    document.getElementById('ai-toggle').onchange = updateConfig;
+    document.getElementById('group-toggle').onchange = updateConfig;
 </script>
 </body>
 </html>
