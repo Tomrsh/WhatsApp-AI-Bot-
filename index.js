@@ -15,64 +15,79 @@ const firebaseConfig = {
   apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
   databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
 };
+const dbUrl = (path) => `${firebaseConfig.databaseURL}/${path}.json?auth=${firebaseConfig.apiKey}`;
 // ========================================================
 
 app.use(express.json());
 app.use(express.static('public'));
 
 let sock;
-let botConfig = {
-    isAIEnabled: true,
-    groupEnabled: false,
-    customReplies: {}
+let isConnected = false;
+let botConfig = { 
+    isAIEnabled: true, 
+    groupEnabled: false, 
+    customReplies: {} 
 };
 
-// --- FIREBASE OPERATIONS ---
-const getDbUrl = (path) => `${firebaseConfig.databaseURL}/${path}.json?auth=${firebaseConfig.apiKey}`;
+// --- SMART REPLY ENGINE ---
+function getSmartReply(text) {
+    const msg = text.toLowerCase();
+    
+    // 1. Greetings
+    if (/hi|hello|hey|hlo|salam|namaste/.test(msg)) {
+        return "Hello! Sir abhi busy hain, main unki assistant bol rahi hoon. Batayein kya kaam hai? 😊";
+    }
+    // 2. Status / Busy Inquiry
+    if (/busy|kya kar rahe|kaha ho|call|busy ho/.test(msg)) {
+        return "Sir abhi unavailable hain. Aap apna message chhod dijiye, main unhe inform kar dungi. ✨";
+    }
+    // 3. Informing / Message Leaving
+    if (/bata dena|bol dena|infom|message|baat|kehna|sun lo/.test(msg)) {
+        return "Ji bilkul, maine note kar liya hai. Sir aate hi check kar lenge. 😊";
+    }
+    // 4. Short / Casual
+    if (msg.length < 5 || /acha|ok|okay|thik|hm/.test(msg)) {
+        return "Ji, aur kuch kehna hai aapko?";
+    }
 
-async function syncFromFirebase() {
-    try {
-        const res = await axios.get(getDbUrl('bot_settings'));
-        if (res.data) {
-            botConfig = { ...botConfig, ...res.data };
-            console.log("📥 Settings Loaded from Firebase");
-        }
-    } catch (e) { console.log("Firebase Connection Initialized..."); }
+    // Default Fallback
+    return "Theek hai, main ye Sir ko bata dungi. 😊";
 }
 
-async function saveToFirebase() {
+async function syncSettings() {
     try {
-        await axios.put(getDbUrl('bot_settings'), botConfig);
-    } catch (e) { console.error("Firebase Sync Failed!"); }
+        const res = await axios.get(dbUrl('bot_config'));
+        if (res.data) botConfig = { ...botConfig, ...res.data };
+    } catch (e) { console.log("Firebase sync init..."); }
 }
 
-// --- CORE BOT LOGIC ---
+async function saveSettings() {
+    await axios.put(dbUrl('bot_config'), botConfig);
+}
+
 async function startWA() {
-    await syncFromFirebase();
+    await syncSettings();
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
     
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
-        browser: ["Master-Admin", "Chrome", "1.1.0"]
+        browser: ["Master-Assistant", "Chrome", "1.1.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            const url = await QRCode.toDataURL(qr);
-            io.emit('qr', url);
-        }
+        if (qr) io.emit('qr', await QRCode.toDataURL(qr));
         if (connection === 'open') {
-            io.emit('connected');
-            console.log("✅ Dashboard Active!");
+            isConnected = true;
+            io.emit('connected', botConfig);
+            console.log("✅ Assistant Online!");
         }
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startWA();
+            isConnected = false;
+            if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) startWA();
         }
     });
 
@@ -81,42 +96,32 @@ async function startWA() {
         if (!m.message || m.key.fromMe || !botConfig.isAIEnabled) return;
 
         const sender = m.key.remoteJid;
-        const isGroup = sender.endsWith('@g.us');
         const cleanNumber = sender.replace(/[^0-9]/g, '');
+        const msgText = m.message.conversation || m.message.extendedTextMessage?.text || "";
 
-        if (isGroup && !botConfig.groupEnabled) return;
+        if (sender.endsWith('@g.us') && !botConfig.groupEnabled) return;
 
         await sock.sendPresenceUpdate('composing', sender);
         await delay(1500);
 
-        // PRIORITY LOGIC: Check Custom vs Default
+        // --- PRIORITY 1: CUSTOM REPLY ---
         if (botConfig.customReplies && botConfig.customReplies[cleanNumber]) {
-            // Agar specific reply hai toh default assistant msg skip ho jayega
             return await sock.sendMessage(sender, { text: botConfig.customReplies[cleanNumber] }, { quoted: m });
         }
 
-        // DEFAULT REY (Agar custom list me nahi hai)
-        const defaultMsg = "Sir abhi unavailable hain. Main unki assistant bol rahi hoon, aapka message note kar liya hai. 😊";
-        await sock.sendMessage(sender, { text: defaultMsg }, { quoted: m });
+        // --- PRIORITY 2: SMART REPLY ---
+        const reply = getSmartReply(msgText);
+        await sock.sendMessage(sender, { text: reply }, { quoted: m });
     });
 }
 
 // APIs
+app.get('/api/get-config', (req, res) => res.json({ ...botConfig, isConnected }));
 app.post('/api/update-config', async (req, res) => {
     botConfig = { ...botConfig, ...req.body };
-    await saveToFirebase();
+    await saveSettings();
     res.json({ success: true });
 });
-
-app.post('/api/add-custom', async (req, res) => {
-    const { number, reply } = req.body;
-    if(!botConfig.customReplies) botConfig.customReplies = {};
-    botConfig.customReplies[number] = reply;
-    await saveToFirebase();
-    res.json({ success: true });
-});
-
-app.get('/api/get-config', (req, res) => res.json(botConfig));
 
 startWA();
 server.listen(3000, () => console.log("🚀 Server: http://localhost:3000"));
