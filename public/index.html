@@ -1,36 +1,39 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Ultimate Admin Panel</title>
+    <title>Master Panel Pro</title>
     <style>
-        :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --red: #ff3b30; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; flex-wrap: wrap; justify-content: center; padding: 20px; gap: 15px; }
-        .panel { width: 380px; background: var(--card); padding: 20px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        :root { --green: #00a884; --dark: #0b141a; --card: #202c33; --red: #ff3b30; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: white; display: flex; flex-wrap: wrap; justify-content: center; padding: 20px; gap: 20px; }
+        .panel { width: 400px; background: var(--card); padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid #3b4a54; }
         .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        .btn-green { background: var(--green); color: var(--bg); }
+        .btn-green { background: var(--green); color: var(--dark); }
         .btn-red { background: var(--red); color: white; }
         input, select { width: 100%; padding: 10px; margin: 5px 0; background: #2a3942; border: none; color: white; border-radius: 5px; box-sizing: border-box; }
         .hidden { display: none; }
-        h3 { margin-top: 0; color: var(--green); font-size: 16px; }
+        .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="text-align: center; color: var(--green);">Core Controls</h2>
-    <div id="qr-box" style="text-align: center;">Connecting...</div>
-    
-    <div id="dashboard" class="hidden">
+    <h2 style="color: var(--green); text-align: center;">Core Automation</h2>
+    <div id="qr-screen" class="hidden" style="text-align: center;">
+        <div id="qr-box">Loading QR...</div>
+    </div>
+
+    <div id="main-ui" class="hidden">
         <div class="card">
-            <label style="display:flex; justify-content:space-between;">Smart AI <input type="checkbox" id="ai-toggle"></label>
-            <label style="display:flex; justify-content:space-between; margin-top:10px;">Groups <input type="checkbox" id="group-toggle"></label>
+            <div class="row"><span>Global AI Mode</span> <input type="checkbox" id="ai-toggle"></div>
+            <div class="row"><span>Group AI Mode</span> <input type="checkbox" id="group-toggle"></div>
         </div>
+
         <div class="card">
             <h3>Set Priority Reply</h3>
             <input type="number" id="p-num" placeholder="91XXXXXXXXXX">
-            <input type="text" id="p-msg" placeholder="Specific reply">
-            <button class="btn btn-green" onclick="addPriority()">Save Priority</button>
+            <input type="text" id="p-msg" placeholder="Edited reply for this user">
+            <button class="btn btn-green" onclick="savePriority()">Save to Firebase</button>
         </div>
     </div>
 </div>
@@ -40,70 +43,95 @@
     <div class="card">
         <h3>⏱️ Timer Message</h3>
         <input type="number" id="t-num" placeholder="91XXXXXXXXXX">
-        <input type="text" id="t-msg" placeholder="Message content">
+        <input type="text" id="t-msg" placeholder="Your message">
         <div style="display:flex; gap:5px;">
-            <input type="number" id="t-val" placeholder="Time">
-            <select id="t-unit"><option value="sec">Sec</option><option value="min">Min</option><option value="hour">Hour</option></select>
+            <input type="number" id="t-val" placeholder="Value">
+            <select id="t-unit"><option value="min">Min</option><option value="hour">Hour</option><option value="day">Day</option></select>
         </div>
-        <button class="btn btn-green" onclick="setTimer()">Schedule</button>
+        <button class="btn btn-green" onclick="sendTimer()">Schedule Now</button>
     </div>
 
     <div class="card">
         <h3>💣 Message Bomber</h3>
         <input type="number" id="b-num" placeholder="91XXXXXXXXXX">
-        <input type="text" id="b-msg" placeholder="Bomb msg">
+        <input type="text" id="b-msg" placeholder="Bomb message">
         <input type="number" id="b-delay" placeholder="Delay (Sec)">
-        <input type="number" id="b-count" placeholder="Count">
-        <button class="btn btn-green" onclick="bomb('start')">START</button>
-        <button class="btn btn-red" onclick="bomb('stop')">STOP</button>
+        <input type="number" id="b-count" placeholder="Total Messages">
+        <button class="btn btn-green" onclick="bomber('start')">START</button>
+        <button class="btn btn-red" onclick="bomber('stop')">STOP</button>
     </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
     const socket = io();
-    let config = {};
+    let currentConfig = {};
+
+    function refreshUI(config) {
+        currentConfig = config;
+        document.getElementById('qr-screen').classList.add('hidden');
+        document.getElementById('main-ui').classList.remove('hidden');
+        document.getElementById('ai-toggle').checked = config.isAIEnabled;
+        document.getElementById('group-toggle').checked = config.groupEnabled;
+    }
 
     socket.on('qr', url => {
-        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="180" style="background:white; padding:10px; border-radius:10px;">`;
+        document.getElementById('qr-screen').classList.remove('hidden');
+        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="200" style="background:white; padding:10px; border-radius:10px;">`;
     });
 
-    socket.on('connected', (c) => {
-        config = c;
-        document.getElementById('qr-box').innerHTML = "<b style='color:var(--green)'>✅ Linked Successfully</b>";
-        document.getElementById('dashboard').classList.remove('hidden');
-        document.getElementById('ai-toggle').checked = c.isAIEnabled;
-        document.getElementById('group-toggle').checked = c.groupEnabled;
+    socket.on('connected', config => refreshUI(config));
+
+    // Handle Toggles
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+        el.onchange = async () => {
+            currentConfig.isAIEnabled = document.getElementById('ai-toggle').checked;
+            currentConfig.groupEnabled = document.getElementById('group-toggle').checked;
+            await fetch('/api/update-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(currentConfig)
+            });
+        };
     });
 
-    async function updateConfig() {
-        config.isAIEnabled = document.getElementById('ai-toggle').checked;
-        config.groupEnabled = document.getElementById('group-toggle').checked;
-        await fetch('/api/update-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
+    async function savePriority() {
+        const num = document.getElementById('p-num').value;
+        const msg = document.getElementById('p-msg').value;
+        currentConfig.customReplies[num] = msg;
+        await fetch('/api/update-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(currentConfig)
+        });
+        alert("Priority Set!");
     }
 
-    async function addPriority() {
-        const n = document.getElementById('p-num').value;
-        const m = document.getElementById('p-msg').value;
-        config.customReplies[n] = m;
-        await updateConfig();
-        alert("Priority Saved!");
-    }
-
-    async function setTimer() {
-        const payload = { number: document.getElementById('t-num').value, message: document.getElementById('t-msg').value, time: document.getElementById('t-val').value, unit: document.getElementById('t-unit').value };
+    async function sendTimer() {
+        const payload = {
+            number: document.getElementById('t-num').value,
+            message: document.getElementById('t-msg').value,
+            time: document.getElementById('t-val').value,
+            unit: document.getElementById('t-unit').value
+        };
         await fetch('/api/timer-msg', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        alert("Scheduled!");
+        alert("Timer Set!");
     }
 
-    async function bomb(action) {
-        const payload = { action, number: document.getElementById('b-num').value, message: document.getElementById('b-msg').value, delayTime: document.getElementById('b-delay').value, count: document.getElementById('b-count').value };
-        fetch('/api/bomber', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        alert("Bomber Command Sent!");
+    async function bomber(action) {
+        const payload = {
+            action,
+            number: document.getElementById('b-num').value,
+            message: document.getElementById('b-msg').value,
+            delayTime: document.getElementById('b-delay').value,
+            count: document.getElementById('b-count').value
+        };
+        await fetch('/api/bomber', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        alert(action === 'start' ? "Bombing Started!" : "Stopped!");
     }
 
-    document.getElementById('ai-toggle').onchange = updateConfig;
-    document.getElementById('group-toggle').onchange = updateConfig;
+    // Auto load on start
+    fetch('/api/config').then(r => r.json()).then(data => { if(data.isAIEnabled !== undefined) refreshUI(data); });
 </script>
 </body>
 </html>
