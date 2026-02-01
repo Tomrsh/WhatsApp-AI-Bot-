@@ -1,101 +1,113 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Assistant Dashboard</title>
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-database-compat.js"></script>
+    <title>WA Assistant Pro</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        :root { --green: #00a884; --dark: #0b141a; --card: #202c33; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: white; display: flex; justify-content: center; padding: 20px; }
-        .panel { background: var(--card); padding: 25px; border-radius: 20px; width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        :root { --green: #00a884; --dark: #0b141a; --card: #202c33; --text: #e9edef; }
+        body { font-family: sans-serif; background: var(--dark); color: var(--text); display: flex; justify-content: center; padding: 20px; }
+        .panel { width: 100%; max-width: 400px; background: var(--card); padding: 30px; border-radius: 20px; text-align: center; }
         .hidden { display: none; }
-        .status-box { background: #2a3942; padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .device-card { background: #111b21; border: 1px solid #3b4a54; padding: 15px; border-radius: 12px; margin-bottom: 20px; }
-        .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; }
+        .btn { width: 100%; padding: 14px; margin: 10px 0; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
         .btn-green { background: var(--green); color: var(--dark); }
         .btn-outline { background: transparent; border: 1px solid var(--green); color: var(--green); }
-        input, textarea { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: none; background: #2a3942; color: white; box-sizing: border-box; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; background: #2a3942; color: white; box-sizing: border-box; }
+        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; text-align: left; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="color: var(--green); text-align: center;">Smart Assistant Pro</h2>
+    <h2 style="color: var(--green);">Assistant Dashboard</h2>
+    
+    <div id="login-choice">
+        <button class="btn btn-green" onclick="showQR()">New Login (QR Scan)</button>
+        <button class="btn btn-outline" onclick="showIDLogin()">Login with Device ID</button>
+    </div>
 
-    <div id="qr-screen" style="text-align: center;">
-        <p>Scan to link your primary device</p>
-        <div id="qr-container">Loading QR...</div>
+    <div id="qr-screen" class="hidden">
+        <div id="qr-box" style="background: white; padding: 10px; display: inline-block; border-radius: 10px;">Waiting for QR...</div>
+        <p>Scan with WhatsApp Linked Devices</p>
+        <button class="btn-outline" onclick="location.reload()">Back</button>
+    </div>
+
+    <div id="id-screen" class="hidden">
+        <input type="text" id="device-id-input" placeholder="Paste Device ID here...">
+        <button class="btn btn-green" onclick="submitID()">Connect Now</button>
+        <button class="btn-outline" onclick="location.reload()">Back</button>
     </div>
 
     <div id="dashboard" class="hidden">
-        <div class="status-box">
-            <strong>🤖 Assistant Mode</strong>
-            <input type="checkbox" id="ai-toggle" style="width:22px; height:22px; accent-color: var(--green);">
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <strong>Assistant Active</strong>
+            <input type="checkbox" id="ai-toggle" style="width:20px; height:20px;">
         </div>
-
-        <div class="device-card">
-            <h4 style="margin:0 0 10px 0; color: #8696a0;">Device Control (ID Sync)</h4>
-            <p style="font-size: 12px; color: #00a884;">Device ID: <strong>PRO_BOT_SESSION_MAIN</strong></p>
-            <button class="btn btn-outline" onclick="copyDeviceID()">Copy Device ID to Clipboard</button>
-            <p style="font-size: 10px; color: #8696a0; margin-top: 8px;">* Dusre device me login ke liye 'auth_info_baileys' folder copy karein.</p>
+        <div class="card">
+            <p style="font-size: 13px; color: #8696a0;">Apni Device ID copy karke rakhein:</p>
+            <button class="btn btn-outline" onclick="copyMyID()">Get & Copy Device ID</button>
+            <textarea id="id-display" class="hidden" style="font-size: 8px; margin-top:10px; height:60px;" readonly></textarea>
         </div>
-
-        <div style="border-top: 1px solid #3b4a54; padding-top: 15px;">
-            <h3>⏱️ Task Scheduler</h3>
-            <input type="number" id="phone" placeholder="91XXXXXXXXXX">
-            <textarea id="msg" placeholder="Write message..." rows="3"></textarea>
-            <input type="number" id="delay" placeholder="Seconds">
-            <button class="btn btn-green" onclick="setTask()">Set Background Task</button>
-        </div>
+        <button class="btn" style="background: #ea4335; color: white;" onclick="location.reload()">Disconnect/Reload</button>
     </div>
 </div>
 
 <script>
-    let database;
     const socket = io();
 
-    async function init() {
+    function showQR() {
+        document.getElementById('login-choice').classList.add('hidden');
+        document.getElementById('qr-screen').classList.remove('hidden');
+    }
+
+    function showIDLogin() {
+        document.getElementById('login-choice').classList.add('hidden');
+        document.getElementById('id-screen').classList.remove('hidden');
+    }
+
+    async function submitID() {
+        const id = document.getElementById('device-id-input').value;
+        const res = await fetch('/api/login-by-id', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ deviceId: id })
+        });
+        if(res.ok) alert("Session injected! System restarting...");
+        else alert("Invalid ID Bhai!");
+    }
+
+    async function copyMyID() {
+        const res = await fetch('/api/export-id');
+        const data = await res.json();
+        if(data.deviceId) {
+            const area = document.getElementById('id-display');
+            area.value = data.deviceId;
+            area.classList.remove('hidden');
+            navigator.clipboard.writeText(data.deviceId);
+            alert("Device ID Copied!");
+        } else {
+            alert(data.error);
+        }
+    }
+
+    socket.on('qr', url => document.getElementById('qr-box').innerHTML = `<img src="${url}" width="200">`);
+    
+    socket.on('connected', () => {
+        document.querySelectorAll('div[id$="-screen"], #login-choice').forEach(d => d.classList.add('hidden'));
+        document.getElementById('dashboard').classList.remove('hidden');
+    });
+
+    document.getElementById('ai-toggle').onchange = (e) => {
+        fetch('/api/toggle-ai', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: e.target.checked}) });
+    };
+
+    window.onload = async () => {
         const res = await fetch('/api/status');
         const data = await res.json();
-        if(data.connected) showDash();
-
-        // Firebase for Toggle Sync
-        firebase.initializeApp({
-            apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
-            databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com"
-        });
-        database = firebase.database();
-        database.ref('bot_settings/ai_active').on('value', snap => {
-            const val = snap.val() || false;
-            document.getElementById('ai-toggle').checked = val;
-            fetch('/api/toggle-ai', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: val}) });
-        });
+        if(data.connected) {
+            document.getElementById('ai-toggle').checked = data.ai;
+            socket.emit('connected');
+        }
     }
-
-    socket.on('qr', url => document.getElementById('qr-container').innerHTML = `<img src="${url}" style="width:100%; background:white; padding:10px; border-radius:10px;">`);
-    socket.on('connected', () => showDash());
-
-    function showDash() {
-        document.getElementById('qr-screen').classList.add('hidden');
-        document.getElementById('dashboard').classList.remove('hidden');
-    }
-
-    document.getElementById('ai-toggle').onchange = (e) => database.ref('bot_settings/ai_active').set(e.target.checked);
-
-    function copyDeviceID() {
-        const dummyID = "PRO_BOT_SESSION_MAIN_" + Date.now();
-        navigator.clipboard.writeText(dummyID);
-        alert("Device ID Copied! Bhai, dusre device mein login ke liye bas 'auth_info_baileys' folder ko transfer kar dena, scan ki zaroorat nahi padegi.");
-    }
-
-    async function setTask() {
-        const payload = { number: document.getElementById('phone').value, message: document.getElementById('msg').value, delay: document.getElementById('delay').value };
-        await fetch('/api/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        alert("Task Scheduled on Server!");
-    }
-
-    init();
 </script>
 </body>
 </html>
