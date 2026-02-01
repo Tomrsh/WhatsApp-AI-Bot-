@@ -1,56 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Advance Master Admin</title>
+    <title>Assistant Master Admin</title>
     <style>
         :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --border: #3b4a54; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; justify-content: center; padding: 20px; }
-        .panel { width: 440px; background: var(--card); padding: 25px; border-radius: 20px; box-shadow: 0 15px 50px rgba(0,0,0,0.5); }
+        .panel { width: 450px; background: var(--card); padding: 25px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
         .card { background: #111b21; padding: 15px; border-radius: 12px; margin: 15px 0; border: 1px solid var(--border); }
-        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
         .btn-green { background: var(--green); color: var(--bg); }
         input { width: 100%; padding: 12px; margin: 8px 0; background: #2a3942; border: 1px solid var(--border); color: white; border-radius: 8px; box-sizing: border-box; }
         .hidden { display: none; }
-        .row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
-        .priority-item { font-size: 11px; background: #2a3942; padding: 5px 10px; border-radius: 5px; margin-top: 5px; display: flex; justify-content: space-between; }
+        .status { text-align: center; font-size: 12px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="color: var(--green); text-align: center; margin-bottom: 5px;">Master Controller</h2>
-    <p id="status-text" style="text-align: center; font-size: 12px; color: #8696a0;">Checking Connection...</p>
+    <h2 style="color: var(--green); text-align: center; margin-bottom: 5px;">Assistant Master</h2>
+    <p id="st-tag" class="status" style="color:#8696a0;">Syncing...</p>
 
     <div id="qr-screen" class="hidden" style="text-align: center;">
-        <div id="qr-box">Generating QR...</div>
-        <p style="font-size: 13px;">WhatsApp > Linked Devices > Link a Device</p>
+        <div id="qr-box" style="margin: 20px 0;">QR Loading...</div>
+        <p style="font-size: 13px;">Scan to activate Smart Assistant</p>
     </div>
 
     <div id="dashboard" class="hidden">
         <div class="card">
-            <div class="row">
-                <span>Global Automation</span>
+            <div style="display:flex; justify-content:space-between;">
+                <span>Smart AI Assistant</span>
                 <input type="checkbox" id="ai-toggle">
             </div>
-            <div class="row">
+            <div style="display:flex; justify-content:space-between; margin-top:15px;">
                 <span>Group Replies</span>
                 <input type="checkbox" id="group-toggle">
             </div>
         </div>
 
         <div class="card">
-            <h4 style="margin: 0; color: var(--green);">Targeted Priority Reply</h4>
-            <p style="font-size: 11px; color: #8696a0;">In numbers ko default msg nhi jayega.</p>
-            <input type="number" id="target-num" placeholder="91XXXXXXXXXX">
-            <input type="text" id="target-msg" placeholder="Edited reply for this user">
-            <button class="btn btn-green" onclick="savePriority()">Save & Sync Firebase</button>
-            <div id="priority-list" style="margin-top: 10px;"></div>
+            <h4 style="margin:0; color: var(--green);">Priority Specific Reply</h4>
+            <p style="font-size: 11px; color: #8696a0;">In numbers ko Smart reply nhi jayega.</p>
+            <input type="number" id="num" placeholder="91XXXXXXXXXX">
+            <input type="text" id="msg" placeholder="Edited reply for this number">
+            <button class="btn btn-green" onclick="addCustom()">Save Logic to Firebase</button>
+            <div id="p-list" style="font-size: 11px; margin-top: 10px; color: var(--green);"></div>
         </div>
 
         <div class="card">
-            <h4>Remote Access Link</h4>
-            <input type="text" id="share-link" readonly style="font-size: 10px; color: var(--green);">
+            <h4>Remote Access</h4>
+            <input type="text" id="link" readonly style="font-size: 10px; color: var(--green);">
             <button class="btn" style="background: var(--border); color: white;" onclick="copyLink()">Copy Controller Link</button>
         </div>
     </div>
@@ -59,19 +57,21 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
     const socket = io();
+    let config = {};
 
-    async function loadDash() {
-        const res = await fetch('/api/get-config');
-        const data = await res.json();
-        document.getElementById('ai-toggle').checked = data.isAIEnabled;
-        document.getElementById('group-toggle').checked = data.groupEnabled;
-        document.getElementById('share-link').value = window.location.href;
+    function updateUI(conf) {
+        config = conf;
+        document.getElementById('st-tag').innerText = "✅ System Connected & Synced";
+        document.getElementById('st-tag').style.color = "var(--green)";
+        document.getElementById('qr-screen').classList.add('hidden');
+        document.getElementById('dashboard').classList.remove('hidden');
+        document.getElementById('ai-toggle').checked = config.isAIEnabled;
+        document.getElementById('group-toggle').checked = config.groupEnabled;
+        document.getElementById('link').value = window.location.href;
         
-        const list = document.getElementById('priority-list');
-        list.innerHTML = "";
-        for(let n in data.customReplies) {
-            list.innerHTML += `<div class="priority-item"><span>${n}</span> <span style="color:var(--green)">Edited ✅</span></div>`;
-        }
+        const list = document.getElementById('p-list');
+        list.innerHTML = "<b>Priority Set For:</b><br>";
+        for(let n in config.customReplies) list.innerHTML += `• ${n}<br>`;
     }
 
     socket.on('qr', url => {
@@ -79,47 +79,38 @@
         document.getElementById('qr-box').innerHTML = `<img src="${url}" width="220" style="background:white; padding:10px; border-radius:10px;">`;
     });
 
-    socket.on('connected', () => {
-        document.getElementById('qr-screen').classList.add('hidden');
-        document.getElementById('dashboard').classList.remove('hidden');
-        document.getElementById('status-text').innerText = "✅ System Connected";
-        loadDash();
-    });
+    socket.on('connected', (c) => updateUI(c));
 
-    async function savePriority() {
-        const payload = { 
-            number: document.getElementById('target-num').value, 
-            reply: document.getElementById('target-msg').value 
-        };
-        if(!payload.number || !payload.reply) return alert("Fields fill karo bhai!");
-        await fetch('/api/add-custom', {
+    async function addCustom() {
+        const n = document.getElementById('num').value;
+        const m = document.getElementById('msg').value;
+        if(!n || !m) return alert("Bhai details dalo!");
+        
+        config.customReplies[n] = m;
+        await fetch('/api/update-config', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
+            body: JSON.stringify(config)
         });
-        alert("Priority Logic Saved!");
-        loadDash();
+        alert("Synced to Firebase!");
+        updateUI(config);
     }
 
-    document.querySelectorAll('input[type="checkbox"]').forEach(el => {
-        el.onchange = async () => {
+    document.querySelectorAll('input[type="checkbox"]').forEach(i => {
+        i.onchange = async () => {
+            config.isAIEnabled = document.getElementById('ai-toggle').checked;
+            config.groupEnabled = document.getElementById('group-toggle').checked;
             await fetch('/api/update-config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    isAIEnabled: document.getElementById('ai-toggle').checked,
-                    groupEnabled: document.getElementById('group-toggle').checked
-                })
+                body: JSON.stringify(config)
             });
         };
     });
 
-    function copyLink() {
-        navigator.clipboard.writeText(document.getElementById('share-link').value);
-        alert("Controller Link Copied!");
-    }
+    function copyLink() { navigator.clipboard.writeText(document.getElementById('link').value); alert("Copied!"); }
 
-    fetch('/api/get-config').then(r => r.json()).then(d => { if(d) loadDash(); });
+    fetch('/api/get-config').then(r => r.json()).then(d => { if(d.isConnected) updateUI(d); });
 </script>
 </body>
 </html>
