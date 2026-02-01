@@ -3,77 +3,59 @@ const express = require('express');
 const { Server } = require('socket.io');
 const http = require('http');
 const QRCode = require('qrcode');
-const fs = require('fs-extra');
 const pino = require('pino');
+const axios = require('axios');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// ================= USER FIREBASE CONFIG =================
+const firebaseConfig = {
+  apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
+  databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
+};
+// ========================================================
+
 app.use(express.json());
 app.use(express.static('public'));
 
 let sock;
-let isAIEnabled = false;
-const sessionPath = './auth_info_baileys';
-const sessionState = new Map();
+let botConfig = {
+    isAIEnabled: true,
+    groupEnabled: false,
+    customReplies: {}
+};
 
-// --- NATURAL ASSISTANT ENGINE ---
-function getNaturalReply(sender, text) {
-    const msg = text.toLowerCase();
-    if (!sessionState.has(sender)) {
-        sessionState.set(sender, { introDone: false });
-    }
-    const state = sessionState.get(sender);
-    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+// --- FIREBASE OPERATIONS ---
+const getDbUrl = (path) => `${firebaseConfig.databaseURL}/${path}.json?auth=${firebaseConfig.apiKey}`;
 
-    // 1. Message Notification Logic
-    if (/bata dena|bol dena|infom|message|baat|kehna|sun lo|keh do/.test(msg)) {
-        state.introDone = true;
-        return pick([
-            "Ji bilkul, main Sir ko inform kar dungi. 😊",
-            "Theek hai, maine note kar liya hai. Sir aate hi check kar lenge.",
-            "Done! Aapka message Sir tak pahunch jayega. ✨"
-        ]);
-    }
-
-    // 2. Greetings
-    if (/hi|hello|hey|hlo|salam/.test(msg)) {
-        if (!state.introDone) {
-            state.introDone = true;
-            return "Hello! Sir abhi busy hain, isliye main unka account manage kar rahi hoon. Batayein kya kaam hai? 😊";
-        } else {
-            return "Ji batayein, main sun rahi hoon. ✨";
+async function syncFromFirebase() {
+    try {
+        const res = await axios.get(getDbUrl('bot_settings'));
+        if (res.data) {
+            botConfig = { ...botConfig, ...res.data };
+            console.log("📥 Settings Loaded from Firebase");
         }
-    }
-
-    // 3. Status
-    if (/busy|kaha hai|kya kar raha|call/.test(msg)) {
-        return "Sir abhi unavailable hain. Main unki assistant hoon, aapka message un tak pahuncha sakti hoon. 😊";
-    }
-
-    // 4. Short Replies
-    if (msg.length < 5 || /acha|ok|okay|thik|hm/.test(msg)) {
-        return pick(["Ji.", "Theek hai. 😊", "Ji, aur kuch?"]);
-    }
-
-    return "Theek hai, maine note kar liya hai. ✨";
+    } catch (e) { console.log("Firebase Connection Initialized..."); }
 }
 
+async function saveToFirebase() {
+    try {
+        await axios.put(getDbUrl('bot_settings'), botConfig);
+    } catch (e) { console.error("Firebase Sync Failed!"); }
+}
+
+// --- CORE BOT LOGIC ---
 async function startWA() {
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    await syncFromFirebase();
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
     
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Pro-Assistant", "Chrome", "1.1.0"],
-        patchMessageBeforeSending: (message) => {
-            const requiresPatch = !!(message.buttonsMessage || message.templateMessage || message.listMessage);
-            if (requiresPatch) {
-                message = { viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 }, ...message } } };
-            }
-            return message;
-        }
+        printQRInTerminal: true,
+        browser: ["Master-Admin", "Chrome", "1.1.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -85,69 +67,56 @@ async function startWA() {
             io.emit('qr', url);
         }
         if (connection === 'open') {
-            console.log("✅ Assistant is Online!");
             io.emit('connected');
+            console.log("✅ Dashboard Active!");
         }
         if (connection === 'close') {
-            const code = lastDisconnect?.error?.output?.statusCode;
-            if (code !== DisconnectReason.loggedOut) startWA();
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) startWA();
         }
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
-        if (!m.message || m.key.fromMe || !isAIEnabled) return;
+        if (!m.message || m.key.fromMe || !botConfig.isAIEnabled) return;
 
         const sender = m.key.remoteJid;
-        const msgText = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || "";
+        const isGroup = sender.endsWith('@g.us');
+        const cleanNumber = sender.replace(/[^0-9]/g, '');
 
-        if (!msgText) return;
+        if (isGroup && !botConfig.groupEnabled) return;
 
-        // Artificial Typing Delay
         await sock.sendPresenceUpdate('composing', sender);
-        await delay(1500); 
+        await delay(1500);
 
-        const reply = getNaturalReply(sender, msgText);
-        await sock.sendMessage(sender, { text: reply }, { quoted: m });
+        // PRIORITY LOGIC: Check Custom vs Default
+        if (botConfig.customReplies && botConfig.customReplies[cleanNumber]) {
+            // Agar specific reply hai toh default assistant msg skip ho jayega
+            return await sock.sendMessage(sender, { text: botConfig.customReplies[cleanNumber] }, { quoted: m });
+        }
+
+        // DEFAULT REY (Agar custom list me nahi hai)
+        const defaultMsg = "Sir abhi unavailable hain. Main unki assistant bol rahi hoon, aapka message note kar liya hai. 😊";
+        await sock.sendMessage(sender, { text: defaultMsg }, { quoted: m });
     });
 }
 
-// --- APIs ---
-app.post('/api/login-by-id', async (req, res) => {
-    try {
-        const { deviceId } = req.body;
-        const decoded = Buffer.from(deviceId, 'base64').toString();
-        const creds = JSON.parse(decoded);
-        
-        await fs.ensureDir(sessionPath);
-        await fs.writeJson(`${sessionPath}/creds.json`, creds);
-        
-        res.json({ success: true });
-        console.log("🔄 Session ID Injected. Restarting...");
-        process.exit(0); // Server automatic restart ho jayega PM2 ya nodemon se
-    } catch (err) {
-        res.status(400).json({ error: "Invalid ID" });
-    }
-});
-
-app.get('/api/export-id', async (req, res) => {
-    try {
-        const creds = await fs.readJson(`${sessionPath}/creds.json`);
-        const encoded = Buffer.from(JSON.stringify(creds)).toString('base64');
-        res.json({ deviceId: encoded });
-    } catch (err) {
-        res.status(404).json({ error: "No Session" });
-    }
-});
-
-app.post('/api/toggle-ai', (req, res) => {
-    isAIEnabled = req.body.status;
+// APIs
+app.post('/api/update-config', async (req, res) => {
+    botConfig = { ...botConfig, ...req.body };
+    await saveToFirebase();
     res.json({ success: true });
 });
 
-app.get('/api/status', (req, res) => {
-    res.json({ connected: !!(sock?.user), ai: isAIEnabled });
+app.post('/api/add-custom', async (req, res) => {
+    const { number, reply } = req.body;
+    if(!botConfig.customReplies) botConfig.customReplies = {};
+    botConfig.customReplies[number] = reply;
+    await saveToFirebase();
+    res.json({ success: true });
 });
+
+app.get('/api/get-config', (req, res) => res.json(botConfig));
 
 startWA();
 server.listen(3000, () => console.log("🚀 Server: http://localhost:3000"));
