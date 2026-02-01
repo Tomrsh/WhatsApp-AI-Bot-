@@ -3,36 +3,30 @@ const express = require('express');
 const { Server } = require('socket.io');
 const http = require('http');
 const QRCode = require('qrcode');
+const fs = require('fs-extra');
 const pino = require('pino');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// ================= CONFIGURATION =================
-const firebaseConfig = {
-  apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
-  databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
-};
-// =================================================
-
 app.use(express.json());
 app.use(express.static('public'));
 
 let sock;
 let isAIEnabled = false;
-const sessionState = new Map(); // Yaad rakhne ke liye ki baat kahan tak pahunchi
+const sessionPath = './auth_info_baileys';
+const sessionState = new Map(); // Context yaad rakhne ke liye
 
-// --- IMPROVED NATURAL ASSISTANT LOGIC ---
+// --- NATURAL ASSISTANT LOGIC (NO AI) ---
 function getNaturalReply(sender, text) {
     const msg = text.toLowerCase();
-    const state = sessionState.get(sender) || { introDone: false, nameAsked: false };
-    
+    const state = sessionState.get(sender) || { introDone: false };
     const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-    // 1. Agar user ne message/naam bataya (Common phrases)
-    if (/bata dena|bol dena|infom|message|baat|kehna/.test(msg)) {
-        sessionState.set(sender, { ...state, introDone: true });
+    // Jab user koi kaam bataye
+    if (/bata dena|bol dena|infom|message|baat|kehna|sun lo/.test(msg)) {
+        sessionState.set(sender, { introDone: true });
         return pick([
             "Ji bilkul, main Sir ko inform kar dungi. 😊",
             "Theek hai, maine note kar liya hai. Sir aate hi check kar lenge.",
@@ -40,54 +34,55 @@ function getNaturalReply(sender, text) {
         ]);
     }
 
-    // 2. Greetings (Sirf pehli baar intro degi)
+    // Pehla Message / Greetings
     if (/hi|hello|hey|hlo|salam/.test(msg)) {
         if (!state.introDone) {
-            sessionState.set(sender, { ...state, introDone: true });
+            sessionState.set(sender, { introDone: true });
             return "Hello! Sir abhi busy hain, isliye main unka account manage kar rahi hoon. Batayein kya kaam hai? 😊";
         } else {
             return "Ji batayein, main sun rahi hoon. ✨";
         }
     }
 
-    // 3. Status/Busy sawal
+    // Status Poochna
     if (/busy|kaha hai|kya kar raha|call/.test(msg)) {
-        return pick([
-            "Sir abhi ek meeting mein hain, isliye phone nahi utha payenge. 😊",
-            "Filhal toh wo busy hain. Aapka koi urgent kaam hai toh mujhe bata dijiye.",
-            "Sir unavailable hain. Main unki assistant hoon, aapka message un tak pahuncha sakti hoon."
-        ]);
+        return "Sir abhi unavailable hain. Main unki assistant hoon, aapka message un tak pahuncha sakti hoon. 😊";
     }
 
-    // 4. Short replies like "Acha", "Ok", "Hmm"
+    // Chote Replies
     if (msg.length < 5 || /acha|ok|okay|thik|hm/.test(msg)) {
         return pick(["Ji.", "Theek hai. 😊", "Ji, aur kuch?"]);
     }
 
-    // Default Reply (Natural Flow)
-    if (!state.introDone) {
-        sessionState.set(sender, { ...state, introDone: true });
-        return "Sir abhi unavailable hain, main unki assistant hoon. Aap apna message chhod dijiye. 😊";
-    } else {
-        return "Theek hai, main ye Sir ko bata dungi. Kuch aur kehna hai? ✨";
-    }
+    return "Theek hai, main ye Sir ko bata dungi. ✨";
 }
 
 async function connectToWA() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
+        printQRInTerminal: true,
         browser: ["Pro-Assistant", "Chrome", "1.1.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if (qr) QRCode.toDataURL(qr).then(url => io.emit('qr', url));
-        if (connection === 'open') io.emit('connected');
-        if (connection === 'close') connectToWA();
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        if (qr) {
+            const url = await QRCode.toDataURL(qr);
+            io.emit('qr', url);
+        }
+        if (connection === 'open') {
+            console.log("✅ WhatsApp Connected!");
+            io.emit('connected');
+        }
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) connectToWA();
+        }
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -105,9 +100,42 @@ async function connectToWA() {
     });
 }
 
-// APIs
+// --- DEVICE ID APIs ---
+
+// 1. Device ID se login karna
+app.post('/api/login-by-id', async (req, res) => {
+    const { deviceId } = req.body;
+    try {
+        const decodedData = Buffer.from(deviceId, 'base64').toString();
+        const credsJson = JSON.parse(decodedData);
+        
+        await fs.ensureDir(sessionPath);
+        await fs.writeJson(`${sessionPath}/creds.json`, credsJson);
+        
+        if (sock) {
+            sock.end();
+            sock = null;
+        }
+        setTimeout(() => connectToWA(), 2000);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(400).json({ error: "Invalid Device ID Format!" });
+    }
+});
+
+// 2. Current Session ki ID nikalna
+app.get('/api/export-id', async (req, res) => {
+    try {
+        const creds = await fs.readJson(`${sessionPath}/creds.json`);
+        const encoded = Buffer.from(JSON.stringify(creds)).toString('base64');
+        res.json({ deviceId: encoded });
+    } catch (err) {
+        res.status(404).json({ error: "No session found. Please scan QR first." });
+    }
+});
+
 app.post('/api/toggle-ai', (req, res) => { isAIEnabled = req.body.status; res.json({ success: true }); });
 app.get('/api/status', (req, res) => res.json({ connected: !!(sock?.user), ai: isAIEnabled }));
 
 connectToWA();
-server.listen(3000, () => console.log("🚀 Natural Assistant Live!"));
+server.listen(3000, () => console.log("🚀 Server: http://localhost:3000"));
