@@ -1,128 +1,127 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assistant Dashboard</title>
+    <title>Master Controller</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        :root { --green: #00a884; --dark: #0b141a; --card: #202c33; --text: #e9edef; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: var(--text); display: flex; justify-content: center; padding: 20px; margin: 0; }
-        .panel { width: 100%; max-width: 420px; background: var(--card); padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
+        :root { --green: #00a884; --dark: #0b141a; --card: #202c33; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: white; display: flex; justify-content: center; padding: 20px; }
+        .panel { width: 450px; background: var(--card); padding: 25px; border-radius: 20px; }
         .hidden { display: none; }
-        .btn { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn:active { transform: scale(0.98); }
-        .btn-green { background: var(--green); color: var(--dark); }
-        .btn-outline { background: transparent; border: 1px solid #3b4a54; color: var(--text); }
-        input { width: 100%; padding: 14px; margin: 10px 0; border-radius: 10px; border: 1px solid #3b4a54; background: #2a3942; color: white; box-sizing: border-box; }
-        .card { background: #111b21; padding: 15px; border-radius: 15px; margin-top: 15px; text-align: left; }
-        #qr-box img { background: white; padding: 10px; border-radius: 10px; width: 220px; }
+        .btn { width: 100%; padding: 12px; margin: 8px 0; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .btn-green { background: var(--green); color: black; }
+        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid #3b4a54; }
+        input { width: 100%; padding: 10px; margin: 5px 0; background: #2a3942; border: none; color: white; border-radius: 5px; box-sizing: border-box;}
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; }
     </style>
 </head>
 <body>
 
 <div class="panel">
-    <h2 style="color: var(--green); margin-bottom: 5px;">WA Assistant Pro</h2>
-    <p id="conn-status" style="font-size: 13px; color: #8696a0;">Initializing...</p>
-
-    <div id="login-choice">
-        <button class="btn btn-green" onclick="showQR()">Scan QR Code</button>
-        <button class="btn btn-outline" onclick="showID()">Login via Device ID</button>
-    </div>
-
+    <h2 style="color: var(--green); text-align: center;">WhatsApp Master Admin</h2>
+    
     <div id="qr-screen" class="hidden">
-        <div id="qr-box">Waiting for QR...</div>
-        <p style="font-size: 13px;">Open WhatsApp > Linked Devices > Link a Device</p>
-        <button class="btn btn-outline" onclick="location.reload()">Cancel</button>
-    </div>
-
-    <div id="id-screen" class="hidden">
-        <input type="text" id="id-input" placeholder="Paste Device ID String...">
-        <button class="btn btn-green" onclick="submitID()">Link Device ID</button>
-        <button class="btn btn-outline" onclick="location.reload()">Back</button>
+        <div id="qr-box" style="background:white; padding:10px; border-radius:10px; text-align:center;"></div>
     </div>
 
     <div id="dashboard" class="hidden">
-        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-            <strong>🤖 Assistant Active</strong>
-            <input type="checkbox" id="ai-toggle" style="width:22px; height:22px; accent-color: var(--green);">
-        </div>
-        
         <div class="card">
-            <h4 style="margin:0;">Device Identity</h4>
-            <p style="font-size: 11px; color: #8696a0;">Copy this ID to login on other devices without QR.</p>
-            <button class="btn btn-outline" onclick="copyID()">Copy My Device ID</button>
-            <textarea id="id-display" class="hidden" style="width:100%; height:60px; font-size: 8px; margin-top:10px; background:#0b141a; color:var(--green); border:none;" readonly></textarea>
+            <div class="toggle-row">
+                <span>🤖 Bot Automation</span>
+                <input type="checkbox" id="ai-toggle">
+            </div>
+            <div class="toggle-row">
+                <span>👨‍👩‍👧‍👦 Group Automation</span>
+                <input type="checkbox" id="group-toggle">
+            </div>
         </div>
-        
-        <button class="btn" style="background: #ea4335; margin-top: 20px;" onclick="location.reload()">Refresh / Logout</button>
+
+        <div class="card">
+            <h4>🔗 Share Controller Access</h4>
+            <p style="font-size: 11px; color: #8696a0;">Use this link to control dashboard from anywhere:</p>
+            <input type="text" id="share-link" readonly onclick="this.select()">
+            <button class="btn btn-green" onclick="copyLink()" style="padding:5px; font-size:12px;">Copy Link</button>
+        </div>
+
+        <div class="card">
+            <h4>👤 Specific User Edited Reply</h4>
+            <input type="number" id="target-number" placeholder="91XXXXXXXXXX">
+            <input type="text" id="target-reply" placeholder="Custom Reply for this person">
+            <button class="btn btn-green" onclick="setCustomReply()">Save Special Reply</button>
+        </div>
     </div>
 </div>
 
 <script>
     const socket = io();
+    let myToken = "";
 
-    function showQR() {
-        document.getElementById('login-choice').classList.add('hidden');
-        document.getElementById('qr-screen').classList.remove('hidden');
-    }
-
-    function showID() {
-        document.getElementById('login-choice').classList.add('hidden');
-        document.getElementById('id-screen').classList.remove('hidden');
-    }
-
-    async function submitID() {
-        const deviceId = document.getElementById('id-input').value;
-        if(!deviceId) return alert("Bhai ID toh dalo!");
-        const res = await fetch('/api/login-by-id', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ deviceId })
-        });
-        if(res.ok) alert("ID Injected! Server is restarting, please wait 5 seconds.");
-        else alert("Invalid ID Format!");
-    }
-
-    async function copyID() {
-        const res = await fetch('/api/export-id');
+    async function init() {
+        const res = await fetch('/api/status');
         const data = await res.json();
-        if(data.deviceId) {
-            const el = document.getElementById('id-display');
-            el.value = data.deviceId;
-            el.classList.remove('hidden');
-            navigator.clipboard.writeText(data.deviceId);
-            alert("Device ID Copied!");
+        if(data.connected) {
+            myToken = data.token;
+            showDash();
+        } else {
+            document.getElementById('qr-screen').classList.remove('hidden');
         }
     }
 
     socket.on('qr', url => {
-        document.getElementById('qr-box').innerHTML = `<img src="${url}">`;
-        document.getElementById('conn-status').innerText = "Ready to Scan";
+        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="200">`;
     });
 
-    socket.on('connected', () => {
-        document.querySelectorAll('div[id$="-screen"], #login-choice, #id-screen').forEach(d => d.classList.add('hidden'));
+    socket.on('connected', data => {
+        myToken = data.token;
+        showDash();
+    });
+
+    function showDash() {
+        document.getElementById('qr-screen').classList.add('hidden');
         document.getElementById('dashboard').classList.remove('hidden');
-        document.getElementById('conn-status').innerText = "✅ Connected & Protected";
+        document.getElementById('share-link').value = window.location.origin + "/control/" + myToken;
+        loadConfig();
+    }
+
+    async function loadConfig() {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        document.getElementById('ai-toggle').checked = data.isAIEnabled;
+        document.getElementById('group-toggle').checked = data.groupEnabled;
+    }
+
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+        el.onchange = () => {
+            fetch('/api/update-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    isAIEnabled: document.getElementById('ai-toggle').checked,
+                    groupEnabled: document.getElementById('group-toggle').checked
+                })
+            });
+        };
     });
 
-    document.getElementById('ai-toggle').onchange = (e) => {
-        fetch('/api/toggle-ai', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({status: e.target.checked}) 
+    async function setCustomReply() {
+        const payload = {
+            number: document.getElementById('target-number').value,
+            reply: document.getElementById('target-reply').value
+        };
+        await fetch('/api/set-custom-reply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
         });
-    };
+        alert("Special Reply Saved!");
+    }
 
-    window.onload = async () => {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        if(data.connected) {
-            document.getElementById('ai-toggle').checked = data.ai;
-            socket.emit('connected');
-        }
-    };
+    function copyLink() {
+        navigator.clipboard.writeText(document.getElementById('share-link').value);
+        alert("Controller Link Copied!");
+    }
+
+    init();
 </script>
 </body>
 </html>
