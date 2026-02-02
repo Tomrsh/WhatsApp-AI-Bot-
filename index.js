@@ -16,64 +16,59 @@ const upload = multer({ dest: 'uploads/' });
 app.use(express.json());
 app.use(express.static('public'));
 
-const MY_URL = "https://aapka-app-name.onrender.com"; 
+// --- CONFIGURATION ---
+const MY_URL = "https://your-saas-app.onrender.com"; 
 const firebaseConfig = {
-  apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
-  databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
+    apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
+    databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
 };
 
-let sessions = {}; // Multi-user sessions storage
+let sessions = {}; 
 
-// --- 1. RENDER ANTI-SLEEP ---
-setInterval(() => {
-    axios.get(MY_URL).catch(() => {});
-}, 4 * 60 * 1000);
+// 1. Anti-Sleep (Render 24/7)
+setInterval(() => { axios.get(MY_URL).catch(() => {}); }, 4 * 60 * 1000);
 
-// --- 2. SMART TXT BRAIN LOGIC ---
-async function getSmartReply(userId, userMsg) {
-    const filePath = `./data/${userId}/smart-reply.txt`;
-    if (!await fs.pathExists(filePath)) return "Sir abhi busy hain. 😊";
-    
-    const content = await fs.readFile(filePath, 'utf8');
+// 2. Smart Brain Logic (From TXT)
+async function getBrainReply(userId, text) {
+    const path = `./data/${userId}/smart-reply.txt`;
+    if (!await fs.pathExists(path)) return "Assistant: I am currently busy. 😊";
+    const content = await fs.readFile(path, 'utf8');
     const lines = content.split('\n');
-    userMsg = userMsg.toLowerCase();
-
     for (let line of lines) {
         if (line.includes('|')) {
-            let [keyword, response] = line.split('|');
-            if (userMsg.includes(keyword.trim().toLowerCase())) return response.trim();
+            let [key, val] = line.split('|');
+            if (text.toLowerCase().includes(key.trim().toLowerCase())) return val.trim();
         }
     }
-    return "Theek hai, main note kar leta hoon. 😊";
+    return "Noted. I'll inform Sir.";
 }
 
-// --- 3. MULTI-USER SESSION START ---
-async function startSession(userId) {
-    const sessionDir = `./sessions/${userId}`;
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+// 3. Instance Handler
+async function startInstance(userId) {
+    const sessionPath = `./sessions/${userId}`;
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     
-    // Sync Config from Firebase for this specific user
-    let userConfig = { isAIEnabled: true, groupEnabled: false, customReplies: {} };
+    let config = { isAIEnabled: true, groupEnabled: false, customReplies: {} };
     try {
         const res = await axios.get(`${firebaseConfig.databaseURL}/users/${userId}.json?auth=${firebaseConfig.apiKey}`);
-        if(res.data) userConfig = res.data;
+        if(res.data) config = res.data;
     } catch(e) {}
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Master-SaaS", "Chrome", "1.0.0"]
+        browser: ["SaaS-Master", "Chrome", "1.0.0"]
     });
 
-    sessions[userId] = { sock, config: userConfig, bomberActive: false };
+    sessions[userId] = { sock, config, bomberActive: false };
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', async (up) => {
         const { connection, qr } = up;
         if (qr) io.to(userId).emit('qr', await QRCode.toDataURL(qr));
-        if (connection === 'open') io.to(userId).emit('connected', userConfig);
-        if (connection === 'close') {
-            if (up.lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) startSession(userId);
+        if (connection === 'open') io.to(userId).emit('ready', config);
+        if (connection === 'close' && up.lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
+            startInstance(userId);
         }
     });
 
@@ -82,38 +77,37 @@ async function startSession(userId) {
         if (!m.message || m.key.fromMe || !sessions[userId].config.isAIEnabled) return;
         
         const sender = m.key.remoteJid;
-        const cleanNum = sender.replace(/[^0-9]/g, '');
         const msgText = m.message.conversation || m.message.extendedTextMessage?.text || "";
+        const cleanNum = sender.replace(/[^0-9]/g, '');
 
         if (sender.endsWith('@g.us') && !sessions[userId].config.groupEnabled) return;
 
-        // Priority Logic
+        // Custom Priority Check
         if (sessions[userId].config.customReplies[cleanNum]) {
-            await delay(1000);
             return await sock.sendMessage(sender, { text: sessions[userId].config.customReplies[cleanNum] }, { quoted: m });
         }
 
         // TXT Brain Reply
-        const reply = await getSmartReply(userId, msgText);
+        const reply = await getBrainReply(userId, msgText);
         await delay(1500);
         await sock.sendMessage(sender, { text: reply }, { quoted: m });
     });
 }
 
-// --- 4. APIs ---
-app.get('/dashboard/:userId', (req, res) => res.sendFile(__dirname + '/public/index.html'));
+// 4. API Endpoints
+app.get('/dashboard/:userId', (req, res) => res.sendFile(__dirname + '/public/dashboard.html'));
 
-app.post('/api/save-config/:userId', async (req, res) => {
-    const userId = req.params.userId;
-    sessions[userId].config = req.body;
-    await axios.put(`${firebaseConfig.databaseURL}/users/${userId}.json?auth=${firebaseConfig.apiKey}`, req.body);
-    res.json({ success: true });
-});
-
-app.post('/api/upload-txt/:userId', upload.single('file'), async (req, res) => {
+app.post('/api/upload/:userId', upload.single('file'), async (req, res) => {
     const userId = req.params.userId;
     await fs.ensureDir(`./data/${userId}`);
     await fs.move(req.file.path, `./data/${userId}/smart-reply.txt`, { overwrite: true });
+    res.json({ success: true });
+});
+
+app.post('/api/save/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    sessions[userId].config = req.body;
+    await axios.put(`${firebaseConfig.databaseURL}/users/${userId}.json?auth=${firebaseConfig.apiKey}`, req.body);
     res.json({ success: true });
 });
 
@@ -133,7 +127,7 @@ app.post('/api/bomber/:userId', async (req, res) => {
 app.post('/api/timer/:userId', (req, res) => {
     const { number, message, time, unit } = req.body;
     const userId = req.params.userId;
-    let ms = { 'sec': 1, 'min': 60, 'hour': 3600, 'day': 86400 }[unit] * time * 1000;
+    let ms = { 'sec': 1000, 'min': 60000, 'hour': 3600000, 'day': 86400000 }[unit] * time;
     setTimeout(() => { 
         if(sessions[userId]) sessions[userId].sock.sendMessage(number + "@s.whatsapp.net", { text: message }); 
     }, ms);
@@ -141,11 +135,11 @@ app.post('/api/timer/:userId', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-    socket.on('join', (userId) => {
+    socket.on('init', (userId) => {
         socket.join(userId);
-        if (!sessions[userId]) startSession(userId);
-        else if (sessions[userId].sock.user) socket.emit('connected', sessions[userId].config);
+        if (!sessions[userId]) startInstance(userId);
+        else if (sessions[userId].sock.user) socket.emit('ready', sessions[userId].config);
     });
 });
 
-server.listen(process.env.PORT || 3000);
+server.listen(process.env.PORT || 3000, () => console.log("System Live!"));
