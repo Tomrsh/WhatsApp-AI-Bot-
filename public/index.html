@@ -1,121 +1,126 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>SaaS WhatsApp Master</title>
-    <style>
-        :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --red: #ff3b30; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; flex-wrap: wrap; justify-content: center; padding: 20px; gap: 20px; }
-        .panel { width: 380px; background: var(--card); padding: 25px; border-radius: 20px; border: 1px solid #3b4a54; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
-        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid #3b4a54; }
-        input, select { width: 100%; padding: 12px; margin: 8px 0; background: #2a3942; border: none; color: white; border-radius: 8px; box-sizing: border-box; }
-        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px; }
-        .btn-green { background: var(--green); color: black; }
-        .btn-red { background: var(--red); color: white; }
-        .hidden { display: none; }
-        .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Pro Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
-<body>
+<body class="bg-gray-900 text-white font-sans overflow-x-hidden">
 
-<div class="panel">
-    <h2 id="u-title" style="color:var(--green); text-align:center;">User Dashboard</h2>
-    <div id="qr-screen" style="text-align:center;">
-        <div id="qr-box">Initializing Session...</div>
+    <nav class="p-4 bg-gray-800 border-b border-orange-500 flex justify-between items-center sticky top-0 z-50">
+        <h1 class="text-2xl font-black text-orange-500 italic">RESTO-AUTO</h1>
+        <div id="status" class="text-xs font-bold px-3 py-1 rounded-full bg-red-600">OFFLINE</div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <div class="bg-gray-800 p-5 rounded-2xl shadow-xl h-fit">
+            <h2 class="font-bold text-lg mb-4 text-orange-400">Automation Control</h2>
+            
+            <button onclick="pickPhoneContacts()" class="w-full bg-blue-600 hover:bg-blue-700 p-3 rounded-xl font-bold mb-4 flex items-center justify-center gap-2 transition">
+                📱 Select from Phone
+            </button>
+            
+            <div id="qr-container" class="bg-white p-2 rounded-lg mb-4 flex justify-center">
+                <p class="text-black text-xs italic">Loading QR...</p>
+            </div>
+
+            <h3 class="text-sm font-bold mb-2">Blocked List:</h3>
+            <div id="blocked-display" class="space-y-2 max-h-40 overflow-y-auto text-xs text-gray-400">
+                No users blocked.
+            </div>
+            <button onclick="clearBlocks()" class="w-full mt-4 text-[10px] text-red-400 underline">Clear All Rules</button>
+        </div>
+
+        <div class="lg:col-span-3">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold border-l-4 border-orange-500 pl-3">Live Orders</h2>
+                <button onclick="location.href='/download-report'" class="bg-green-600 px-4 py-2 rounded-lg font-bold text-sm">📥 Excel Report</button>
+            </div>
+            <div id="order-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
     </div>
 
-    <div id="main-ui" class="hidden">
-        <div class="card">
-            <div class="row"><span>AI Mode</span> <input type="checkbox" id="ai-toggle"></div>
-            <div class="row"><span>Groups Mode</span> <input type="checkbox" id="group-toggle"></div>
-        </div>
-        <div class="card">
-            <h3>🧠 Train Brain (.txt)</h3>
-            <input type="file" id="f-input">
-            <button class="btn btn-green" onclick="uploadBrain()">Update Knowledge</button>
-        </div>
-        <div class="card">
-            <h3>Set Priority Reply</h3>
-            <input type="number" id="p-num" placeholder="91XXXXXXXXXX">
-            <input type="text" id="p-msg" placeholder="Fixed reply for this number">
-            <button class="btn btn-green" onclick="saveConfig()">Save Settings</button>
-        </div>
-    </div>
-</div>
+    <script>
+        const firebaseConfig = { apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU", databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const socket = io();
 
-<div class="panel">
-    <h2 style="text-align:center; color:var(--green);">Automation Tools</h2>
-    <div class="card">
-        <h3>⏱️ Timer Message</h3>
-        <input type="number" id="t-num" placeholder="91XXXXXXXXXX">
-        <input type="text" id="t-msg" placeholder="Your Message">
-        <div style="display:flex; gap:5px;">
-            <input type="number" id="t-val" placeholder="Time">
-            <select id="t-unit"><option value="min">Min</option><option value="hour">Hour</option><option value="day">Day</option></select>
-        </div>
-        <button class="btn btn-green" onclick="setTimer()">Schedule</button>
-    </div>
-    <div class="card">
-        <h3>💣 Message Bomber</h3>
-        <input type="number" id="b-num" placeholder="91XXXXXXXXXX">
-        <input type="text" id="b-msg" placeholder="Spam text">
-        <input type="number" id="b-delay" placeholder="Delay (Sec)">
-        <input type="number" id="b-count" placeholder="Total Count">
-        <button class="btn btn-green" onclick="bomb('start')">START</button>
-        <button class="btn btn-red" onclick="bomb('stop')">STOP</button>
-    </div>
-</div>
+        // 📱 Native Contact Picker API
+        async function pickPhoneContacts() {
+            const props = ['name', 'tel'];
+            const opts = { multiple: true };
 
-<script src="/socket.io/socket.io.js"></script>
-<script>
-    const socket = io();
-    const userId = window.location.pathname.split('/').pop();
-    document.getElementById('u-title').innerText = "Session: " + userId;
-    let config = {};
+            try {
+                const contacts = await navigator.contacts.select(props, opts);
+                if (contacts.length) {
+                    contacts.forEach(c => {
+                        const num = c.tel[0].replace(/\D/g, '');
+                        db.ref('blocked_users/' + num).set(true);
+                    });
+                    alert("Selected contacts blocked from automation!");
+                }
+            } catch (err) {
+                alert("Browser Contact Picker not supported. Please use HTTPS or Mobile Chrome.");
+                console.error(err);
+            }
+        }
 
-    socket.emit('init', userId);
+        function clearBlocks() {
+            if(confirm("Sari automation rules delete karein?")) db.ref('blocked_users').remove();
+        }
 
-    socket.on('qr', url => {
-        document.getElementById('qr-box').innerHTML = `<h4>Scan QR</h4><img src="${url}" width="220" style="background:white; padding:10px; border-radius:10px;">`;
-    });
+        // Display Blocked List
+        db.ref('blocked_users').on('value', snap => {
+            const div = document.getElementById('blocked-display');
+            div.innerHTML = '';
+            snap.forEach(child => {
+                div.innerHTML += `<div class="bg-gray-700 p-2 rounded flex justify-between"><span>${child.key}</span> <span class="text-red-500 font-bold">OFF</span></div>`;
+            });
+        });
 
-    socket.on('ready', (c) => {
-        config = c;
-        document.getElementById('qr-screen').classList.add('hidden');
-        document.getElementById('main-ui').classList.remove('hidden');
-        document.getElementById('ai-toggle').checked = c.isAIEnabled;
-        document.getElementById('group-toggle').checked = c.groupEnabled;
-    });
+        // Live Orders
+        db.ref('orders/active').on('value', snap => {
+            const list = document.getElementById('order-list');
+            list.innerHTML = '';
+            snap.forEach(child => {
+                const o = child.val();
+                list.innerHTML += `
+                    <div class="bg-gray-800 p-5 rounded-2xl border-l-8 border-orange-500 shadow-lg">
+                        <div class="flex justify-between">
+                            <span class="font-bold text-orange-400">${o.details} (Qty: ${o.qty})</span>
+                            <span class="text-[10px] text-gray-500">${o.time}</span>
+                        </div>
+                        <p class="text-xs text-gray-400 my-3">📍 ${o.address}</p>
+                        <button onclick="doneOrder('${o.id}')" class="w-full bg-blue-600 py-2 rounded-lg font-bold text-sm hover:bg-blue-500">MARK DONE</button>
+                    </div>`;
+            });
+        });
 
-    async function saveConfig() {
-        const pN = document.getElementById('p-num').value;
-        const pM = document.getElementById('p-msg').value;
-        if(pN && pM) config.customReplies[pN] = pM;
-        config.isAIEnabled = document.getElementById('ai-toggle').checked;
-        config.groupEnabled = document.getElementById('group-toggle').checked;
-        await fetch(`/api/save/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
-        alert("Config Saved!");
-    }
+        function doneOrder(id) {
+            db.ref('orders/active/' + id).once('value', s => {
+                db.ref('orders/completed/' + id).set({...s.val(), timestamp: Date.now()});
+                db.ref('orders/active/' + id).remove();
+            });
+        }
 
-    async function uploadBrain() {
-        const file = document.getElementById('f-input').files[0];
-        const formData = new FormData();
-        formData.append('file', file);
-        await fetch(`/api/upload/${userId}`, { method: 'POST', body: formData });
-        alert("Brain Uploaded!");
-    }
+        socket.on('qr', qr => {
+            document.getElementById('qr-container').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}">`;
+        });
 
-    async function setTimer() {
-        const payload = { number: document.getElementById('t-num').value, message: document.getElementById('t-msg').value, time: document.getElementById('t-val').value, unit: document.getElementById('t-unit').value };
-        await fetch(`/api/timer/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        alert("Timer Scheduled!");
-    }
+        socket.on('status', s => {
+            const el = document.getElementById('status');
+            el.innerText = s;
+            el.className = s === 'Connected' ? 'text-xs font-bold px-3 py-1 rounded-full bg-green-600' : 'text-xs font-bold px-3 py-1 rounded-full bg-red-600';
+        });
 
-    async function bomb(action) {
-        const payload = { action, number: document.getElementById('b-num').value, message: document.getElementById('b-msg').value, delayTime: document.getElementById('b-delay').value, count: document.getElementById('b-count').value };
-        await fetch(`/api/bomber/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    }
-
-    document.querySelectorAll('input[type="checkbox"]').forEach(i => i.onchange = saveConfig);
-</script>
+        // 7-Day Auto Delete (Backend will handle, this is for UI safety)
+        setInterval(() => { fetch('/'); }, 120000);
+    </script>
 </body>
 </html>
