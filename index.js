@@ -17,7 +17,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // --- CONFIGURATION ---
-const MY_URL = "https://your-saas-app.onrender.com"; 
+const MY_URL = "https://your-app-name.onrender.com"; 
 const firebaseConfig = {
     apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
     databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
@@ -25,25 +25,39 @@ const firebaseConfig = {
 
 let sessions = {}; 
 
-// 1. Anti-Sleep (Render 24/7)
+// 1. Render Anti-Sleep (Har 4 min mein self-ping)
 setInterval(() => { axios.get(MY_URL).catch(() => {}); }, 4 * 60 * 1000);
 
-// 2. Smart Brain Logic (From TXT)
-async function getBrainReply(userId, text) {
-    const path = `./data/${userId}/smart-reply.txt`;
-    if (!await fs.pathExists(path)) return "Assistant: I am currently busy. 😊";
+// 2. Advanced AI Parser (Linux Style)
+async function getAIBrainReply(userId, userMsg) {
+    const path = `./data/${userId}/chat.txt`;
+    if (!await fs.pathExists(path)) return "Ji, abhi busy hoon. 😊";
+
     const content = await fs.readFile(path, 'utf8');
     const lines = content.split('\n');
-    for (let line of lines) {
-        if (line.includes('|')) {
-            let [key, val] = line.split('|');
-            if (text.toLowerCase().includes(key.trim().toLowerCase())) return val.trim();
+    let chatMemory = [];
+    let lastStrangerMsg = "";
+
+    lines.forEach(line => {
+        const match = line.match(/\] (.*?): (.*)/);
+        if (match) {
+            let name = match[1].trim();
+            let msg = match[2].trim();
+            // Agar "Linux" naam hai toh wo AI ka reply hai
+            if (name.includes("Linux")) {
+                if (lastStrangerMsg) chatMemory.push({ input: lastStrangerMsg.toLowerCase(), output: msg });
+            } else {
+                lastStrangerMsg = msg;
+            }
         }
-    }
-    return "Noted. I'll inform Sir.";
+    });
+
+    const cleanInput = userMsg.toLowerCase().trim();
+    const match = chatMemory.find(c => cleanInput.includes(c.input) || c.input.includes(cleanInput));
+    return match ? match.output : "Theek hai, note kar liya. 👍";
 }
 
-// 3. Instance Handler
+// 3. Multi-Instance Handler
 async function startInstance(userId) {
     const sessionPath = `./sessions/${userId}`;
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
@@ -57,7 +71,7 @@ async function startInstance(userId) {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["SaaS-Master", "Chrome", "1.0.0"]
+        browser: ["SaaS-Bot", "Chrome", "1.0.0"]
     });
 
     sessions[userId] = { sock, config, bomberActive: false };
@@ -74,7 +88,7 @@ async function startInstance(userId) {
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
-        if (!m.message || m.key.fromMe || !sessions[userId].config.isAIEnabled) return;
+        if (!m.message || m.key.fromMe) return;
         
         const sender = m.key.remoteJid;
         const msgText = m.message.conversation || m.message.extendedTextMessage?.text || "";
@@ -82,25 +96,27 @@ async function startInstance(userId) {
 
         if (sender.endsWith('@g.us') && !sessions[userId].config.groupEnabled) return;
 
-        // Custom Priority Check
+        // Priority Custom Reply
         if (sessions[userId].config.customReplies[cleanNum]) {
-            return await sock.sendMessage(sender, { text: sessions[userId].config.customReplies[cleanNum] }, { quoted: m });
+            return await sock.sendMessage(sender, { text: sessions[userId].config.customReplies[cleanNum] });
         }
 
-        // TXT Brain Reply
-        const reply = await getBrainReply(userId, msgText);
-        await delay(1500);
-        await sock.sendMessage(sender, { text: reply }, { quoted: m });
+        // AI Training Reply
+        if (sessions[userId].config.isAIEnabled) {
+            const reply = await getAIBrainReply(userId, msgText);
+            await delay(2000);
+            await sock.sendMessage(sender, { text: reply }, { quoted: m });
+        }
     });
 }
 
-// 4. API Endpoints
+// 4. APIs
 app.get('/dashboard/:userId', (req, res) => res.sendFile(__dirname + '/public/dashboard.html'));
 
 app.post('/api/upload/:userId', upload.single('file'), async (req, res) => {
     const userId = req.params.userId;
     await fs.ensureDir(`./data/${userId}`);
-    await fs.move(req.file.path, `./data/${userId}/smart-reply.txt`, { overwrite: true });
+    await fs.move(req.file.path, `./data/${userId}/chat.txt`, { overwrite: true });
     res.json({ success: true });
 });
 
@@ -142,4 +158,4 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(process.env.PORT || 3000, () => console.log("System Live!"));
+server.listen(process.env.PORT || 3000);
