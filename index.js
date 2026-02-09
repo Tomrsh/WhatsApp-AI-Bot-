@@ -5,62 +5,56 @@ const http = require('http');
 const QRCode = require('qrcode');
 const fs = require('fs-extra');
 const axios = require('axios');
-const multer = require('multer');
 const pino = require('pino');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const upload = multer({ dest: 'uploads/' });
 
 app.use(express.json());
 app.use(express.static('public'));
 
 // --- CONFIGURATION ---
-const MY_URL = "https://your-app-name.onrender.com"; 
 const firebaseConfig = {
     apiKey: "AIzaSyAb7V8Xxg5rUYi8UKChEd3rR5dglJ6bLhU",
     databaseURL: "https://t2-storage-4e5ca-default-rtdb.firebaseio.com",
 };
+const MY_URL = "https://your-app-name.onrender.com";
 
-let sessions = {}; 
+let sessions = {};
 
-// 1. Render Anti-Sleep (Har 4 min mein self-ping)
+// 1. Anti-Sleep Logic
 setInterval(() => { axios.get(MY_URL).catch(() => {}); }, 4 * 60 * 1000);
 
-// 2. Advanced AI Parser (Linux Style)
-async function getAIBrainReply(userId, userMsg) {
-    const path = `./data/${userId}/chat.txt`;
-    if (!await fs.pathExists(path)) return "Ji, abhi busy hoon. 😊";
+// 2. Simple Chat Brain Parser
+async function getChatReply(incomingMsg) {
+    try {
+        const path = './chat.txt';
+        if (!await fs.pathExists(path)) return "Assistant: Busy hoon bhai. 😊";
+        
+        const data = await fs.readFile(path, 'utf8');
+        const lines = data.split('\n');
+        const cleanMsg = incomingMsg.toLowerCase().trim();
 
-    const content = await fs.readFile(path, 'utf8');
-    const lines = content.split('\n');
-    let chatMemory = [];
-    let lastStrangerMsg = "";
+        for (let line of lines) {
+            if (line.includes('User:') && line.includes('AI:')) {
+                let parts = line.split('AI:');
+                let userPart = parts[0].replace('User:', '').trim().toLowerCase();
+                let aiPart = parts[1].trim();
 
-    lines.forEach(line => {
-        const match = line.match(/\] (.*?): (.*)/);
-        if (match) {
-            let name = match[1].trim();
-            let msg = match[2].trim();
-            // Agar "Linux" naam hai toh wo AI ka reply hai
-            if (name.includes("Linux")) {
-                if (lastStrangerMsg) chatMemory.push({ input: lastStrangerMsg.toLowerCase(), output: msg });
-            } else {
-                lastStrangerMsg = msg;
+                if (cleanMsg.includes(userPart) || userPart.includes(cleanMsg)) {
+                    return aiPart;
+                }
             }
         }
-    });
-
-    const cleanInput = userMsg.toLowerCase().trim();
-    const match = chatMemory.find(c => cleanInput.includes(c.input) || c.input.includes(cleanInput));
-    return match ? match.output : "Theek hai, note kar liya. 👍";
+    } catch (e) { console.log("Brain Error"); }
+    return "Ji, main thodi der mein batata hoon. 😊";
 }
 
-// 3. Multi-Instance Handler
+// 3. Multi-Instance WhatsApp Starter
 async function startInstance(userId) {
-    const sessionPath = `./sessions/${userId}`;
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    const sessionDir = `./sessions/${userId}`;
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     
     let config = { isAIEnabled: true, groupEnabled: false, customReplies: {} };
     try {
@@ -71,54 +65,42 @@ async function startInstance(userId) {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["SaaS-Bot", "Chrome", "1.0.0"]
+        browser: ["Master-SaaS", "Chrome", "1.0.0"]
     });
 
     sessions[userId] = { sock, config, bomberActive: false };
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', async (up) => {
-        const { connection, qr } = up;
-        if (qr) io.to(userId).emit('qr', await QRCode.toDataURL(qr));
-        if (connection === 'open') io.to(userId).emit('ready', config);
-        if (connection === 'close' && up.lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-            startInstance(userId);
-        }
+        if (up.qr) io.to(userId).emit('qr', await QRCode.toDataURL(up.qr));
+        if (up.connection === 'open') io.to(userId).emit('ready', config);
+        if (up.connection === 'close' && up.lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) startInstance(userId);
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
-        if (!m.message || m.key.fromMe) return;
+        if (!m.message || m.key.fromMe || !sessions[userId].config.isAIEnabled) return;
         
         const sender = m.key.remoteJid;
-        const msgText = m.message.conversation || m.message.extendedTextMessage?.text || "";
-        const cleanNum = sender.replace(/[^0-9]/g, '');
-
+        const msgText = (m.message.conversation || m.message.extendedTextMessage?.text || "").toLowerCase();
+        
         if (sender.endsWith('@g.us') && !sessions[userId].config.groupEnabled) return;
 
-        // Priority Custom Reply
+        // Custom Priority Reply Check
+        const cleanNum = sender.replace(/[^0-9]/g, '');
         if (sessions[userId].config.customReplies[cleanNum]) {
             return await sock.sendMessage(sender, { text: sessions[userId].config.customReplies[cleanNum] });
         }
 
-        // AI Training Reply
-        if (sessions[userId].config.isAIEnabled) {
-            const reply = await getAIBrainReply(userId, msgText);
-            await delay(2000);
-            await sock.sendMessage(sender, { text: reply }, { quoted: m });
-        }
+        // AI Brain Reply
+        const reply = await getChatReply(msgText);
+        await delay(1500);
+        await sock.sendMessage(sender, { text: reply });
     });
 }
 
-// 4. APIs
+// --- APIs ---
 app.get('/dashboard/:userId', (req, res) => res.sendFile(__dirname + '/public/dashboard.html'));
-
-app.post('/api/upload/:userId', upload.single('file'), async (req, res) => {
-    const userId = req.params.userId;
-    await fs.ensureDir(`./data/${userId}`);
-    await fs.move(req.file.path, `./data/${userId}/chat.txt`, { overwrite: true });
-    res.json({ success: true });
-});
 
 app.post('/api/save/:userId', async (req, res) => {
     const userId = req.params.userId;
@@ -158,4 +140,4 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(process.env.PORT || 3000);
+server.listen(process.env.PORT || 3000, () => console.log("System Running 24/7"));

@@ -1,0 +1,3 @@
+User: Hello | AI: Hello! Kaise ho bhai?
+User: Busy ho? | AI: Haan yaar thoda kaam chal raha hai.
+User: Khana khaya? | AI: Haan bhai, abhi badiya boriya baasi kha ke baitha hoon.
