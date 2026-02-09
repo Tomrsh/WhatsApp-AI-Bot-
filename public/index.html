@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SaaS WhatsApp - Professional Dashboard</title>
+    <title>Master SaaS Panel</title>
     <style>
         :root { --green: #00a884; --bg: #0b141a; --card: #202c33; --red: #ff3b30; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; display: flex; flex-wrap: wrap; justify-content: center; padding: 20px; gap: 20px; }
         .panel { width: 380px; background: var(--card); padding: 25px; border-radius: 20px; border: 1px solid #3b4a54; }
-        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid #3b4a54; }
+        .card { background: #111b21; padding: 15px; border-radius: 12px; margin-top: 15px; }
         input, select { width: 100%; padding: 12px; margin: 8px 0; background: #2a3942; border: none; color: white; border-radius: 8px; box-sizing: border-box; }
         .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px; }
         .btn-green { background: var(--green); color: black; }
@@ -17,44 +17,39 @@
 <body>
 
 <div class="panel">
-    <h2 id="u-title" style="color:var(--green); text-align:center;">User Console</h2>
-    <div id="qr-screen" style="text-align:center;">
-        <div id="qr-box">Connecting Session...</div>
-    </div>
+    <h2 id="u-title" style="color:var(--green); text-align:center;">User Dashboard</h2>
+    <div id="qr-box" style="text-align:center;">Initializing...</div>
 
     <div id="main-ui" class="hidden">
         <div class="card">
-            <div style="display:flex; justify-content:space-between;">AI Mode <input type="checkbox" id="ai-toggle"></div>
-            <div style="display:flex; justify-content:space-between; margin-top:10px;">Group Reply <input type="checkbox" id="group-toggle"></div>
+            <div style="display:flex; justify-content:space-between;">AI Engine <input type="checkbox" id="ai-toggle"></div>
+            <div style="display:flex; justify-content:space-between; margin-top:10px;">Group Mode <input type="checkbox" id="group-toggle"></div>
         </div>
         <div class="card">
-            <h3>🧠 Train AI Style</h3>
-            <input type="file" id="f-input" accept=".txt">
-            <button class="btn btn-green" onclick="uploadChat()">Upload chat.txt</button>
-        </div>
-        <div class="card">
-            <h3>Custom Priority</h3>
-            <input type="number" id="p-num" placeholder="91XXXX">
-            <input type="text" id="p-msg" placeholder="Fixed Reply">
-            <button class="btn btn-green" onclick="saveData()">Save Priority</button>
+            <h3>Custom Priority Reply</h3>
+            <input type="number" id="p-num" placeholder="91XXXXXXXXXX">
+            <input type="text" id="p-msg" placeholder="Reply for this number">
+            <button class="btn btn-green" onclick="saveConfig()">Save Settings</button>
         </div>
     </div>
 </div>
 
 <div class="panel">
-    <h2 style="text-align:center; color:var(--green);">SaaS Tools</h2>
+    <h2 style="text-align:center;">Tools</h2>
     <div class="card">
-        <h3>⏱️ Timer Schedule</h3>
+        <h3>⏱️ Timer Message</h3>
         <input type="number" id="t-num" placeholder="91XXXX">
-        <input type="text" id="t-msg" placeholder="Msg">
-        <select id="t-unit"><option value="sec">Sec</option><option value="min">Min</option><option value="hour">Hour</option><option value="day">Day</option></select>
-        <input type="number" id="t-val" placeholder="Time Value">
+        <input type="text" id="t-msg" placeholder="Message">
+        <div style="display:flex; gap:5px;">
+            <input type="number" id="t-val" placeholder="Time">
+            <select id="t-unit"><option value="min">Min</option><option value="hour">Hour</option></select>
+        </div>
         <button class="btn btn-green" onclick="setTimer()">Schedule</button>
     </div>
     <div class="card">
-        <h3>💣 Bomber</h3>
+        <h3>💣 Message Bomber</h3>
         <input type="number" id="b-num" placeholder="91XXXX">
-        <input type="text" id="b-msg">
+        <input type="text" id="b-msg" placeholder="Text">
         <input type="number" id="b-delay" placeholder="Delay (Sec)">
         <input type="number" id="b-count" placeholder="Count">
         <button class="btn btn-green" onclick="bomb('start')">START</button>
@@ -66,22 +61,24 @@
 <script>
     const socket = io();
     const userId = window.location.pathname.split('/').pop();
-    document.getElementById('u-title').innerText = "Session: " + userId;
+    document.getElementById('u-title').innerText = "User: " + userId;
     let config = {};
 
     socket.emit('init', userId);
+
     socket.on('qr', url => {
-        document.getElementById('qr-box').innerHTML = `<img src="${url}" width="220" style="background:white; padding:10px; border-radius:10px;">`;
+        document.getElementById('qr-box').innerHTML = `<h3>Scan QR</h3><img src="${url}" width="220" style="background:white; padding:10px; border-radius:10px;">`;
     });
+
     socket.on('ready', (c) => {
         config = c;
-        document.getElementById('qr-screen').classList.add('hidden');
+        document.getElementById('qr-box').classList.add('hidden');
         document.getElementById('main-ui').classList.remove('hidden');
         document.getElementById('ai-toggle').checked = c.isAIEnabled;
         document.getElementById('group-toggle').checked = c.groupEnabled;
     });
 
-    async function saveData() {
+    async function saveConfig() {
         const pN = document.getElementById('p-num').value;
         const pM = document.getElementById('p-msg').value;
         if(pN) config.customReplies[pN] = pM;
@@ -90,18 +87,10 @@
         await fetch(`/api/save/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
     }
 
-    async function uploadChat() {
-        const file = document.getElementById('f-input').files[0];
-        const formData = new FormData();
-        formData.append('file', file);
-        await fetch(`/api/upload/${userId}`, { method: 'POST', body: formData });
-        alert("AI Style Synced!");
-    }
-
     async function setTimer() {
         const payload = { number: document.getElementById('t-num').value, message: document.getElementById('t-msg').value, time: document.getElementById('t-val').value, unit: document.getElementById('t-unit').value };
         await fetch(`/api/timer/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        alert("Timer Set!");
+        alert("Scheduled!");
     }
 
     async function bomb(action) {
@@ -109,7 +98,7 @@
         await fetch(`/api/bomber/${userId}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
     }
 
-    document.querySelectorAll('input[type="checkbox"]').forEach(i => i.onchange = saveData);
+    document.querySelectorAll('input[type="checkbox"]').forEach(i => i.onchange = saveConfig);
 </script>
 </body>
 </html>
